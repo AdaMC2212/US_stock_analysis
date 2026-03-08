@@ -74,7 +74,6 @@ class StockAnalysisPipeline:
         # 初始化各模块
         self.db = get_db()
         self.fetcher_manager = DataFetcherManager()
-        # 不再单独创建 akshare_fetcher，统一使用 fetcher_manager 获取增强数据
         self.trend_analyzer = StockTrendAnalyzer()  # 趋势分析器
         self.analyzer = GeminiAnalyzer()
         self.notifier = NotificationService(source_message=source_message)
@@ -92,7 +91,7 @@ class StockAnalysisPipeline:
         logger.info("已启用趋势分析器 (MA5>MA10>MA20 多头判断)")
         # 打印实时行情/筹码配置状态
         if self.config.enable_realtime_quote:
-            logger.info(f"实时行情已启用 (优先级: {self.config.realtime_source_priority})")
+            logger.info("实时行情已启用 (provider: yfinance)")
         else:
             logger.info("实时行情已禁用，将使用历史收盘价")
         if self.config.enable_chip_distribution:
@@ -968,12 +967,6 @@ class StockAnalysisPipeline:
         logger.info(f"并发数: {self.max_workers}, 模式: {'仅获取数据' if dry_run else '完整分析'}")
         
         # === 批量预取实时行情（优化：避免每只股票都触发全量拉取）===
-        # 只有股票数量 >= 5 时才进行预取，少量股票直接逐个查询更高效
-        if len(stock_codes) >= 5:
-            prefetch_count = self.fetcher_manager.prefetch_realtime_quotes(stock_codes)
-            if prefetch_count > 0:
-                logger.info(f"已启用批量预取架构：一次拉取全市场数据，{len(stock_codes)} 只股票共享缓存")
-
         # Issue #455: 预取股票名称，避免并发分析时显示「股票xxxxx」
         # dry_run 仅做数据拉取，不需要名称预取，避免额外网络开销
         if not dry_run:

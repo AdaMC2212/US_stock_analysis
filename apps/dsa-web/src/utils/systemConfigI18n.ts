@@ -24,11 +24,9 @@ const categoryDescriptionMap: Partial<Record<SystemConfigCategory, string>> = {
 
 const fieldTitleMap: Record<string, string> = {
   STOCK_LIST: '自选股列表',
-  TUSHARE_TOKEN: 'Tushare Token',
   TAVILY_API_KEYS: 'Tavily API Keys',
   SERPAPI_API_KEYS: 'SerpAPI API Keys',
   BRAVE_API_KEYS: 'Brave API Keys',
-  REALTIME_SOURCE_PRIORITY: '实时数据源优先级',
   ENABLE_REALTIME_TECHNICAL_INDICATORS: '盘中实时技术面',
   LITELLM_MODEL: '主模型',
   LITELLM_FALLBACK_MODELS: '备选模型',
@@ -63,12 +61,10 @@ const fieldTitleMap: Record<string, string> = {
 };
 
 const fieldDescriptionMap: Record<string, string> = {
-  STOCK_LIST: '使用逗号分隔股票代码，例如：600519,300750。',
-  TUSHARE_TOKEN: '用于接入 Tushare Pro 数据服务的凭据。',
+  STOCK_LIST: '使用逗号分隔美股代码，例如：AAPL,MSFT,NVDA,SPY,QQQ。',
   TAVILY_API_KEYS: '用于新闻检索的 Tavily 密钥，支持逗号分隔多个。',
   SERPAPI_API_KEYS: '用于新闻检索的 SerpAPI 密钥，支持逗号分隔多个。',
   BRAVE_API_KEYS: '用于新闻检索的 Brave Search 密钥，支持逗号分隔多个。',
-  REALTIME_SOURCE_PRIORITY: '按逗号分隔填写数据源调用优先级。',
   ENABLE_REALTIME_TECHNICAL_INDICATORS: '盘中分析时用实时价计算 MA5/MA10/MA20 与多头排列（Issue #234）；关闭则用昨日收盘。',
   LITELLM_MODEL: '主模型，格式 provider/model（如 gemini/gemini-2.5-flash）。配置渠道后自动推断。',
   LITELLM_FALLBACK_MODELS: '备选模型，逗号分隔，主模型失败时按序尝试。',

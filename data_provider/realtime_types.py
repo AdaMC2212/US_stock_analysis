@@ -96,7 +96,7 @@ class RealtimeSource(Enum):
     AKSHARE_EM = "akshare_em"       # 东方财富（akshare库）
     AKSHARE_SINA = "akshare_sina"   # 新浪财经
     AKSHARE_QQ = "akshare_qq"       # 腾讯财经
-    TUSHARE = "tushare"             # Tushare Pro
+    TUSHARE = "tushare"             # Legacy enum value kept for compatibility
     TENCENT = "tencent"             # 腾讯直连
     SINA = "sina"                   # 新浪直连
     FALLBACK = "fallback"           # 降级兜底
@@ -184,7 +184,7 @@ class ChipDistribution:
     """
     code: str
     date: str = ""
-    source: str = "akshare"
+    source: str = "yfinance"
     
     # 获利情况
     profit_ratio: float = 0.0     # 获利比例(0-1)

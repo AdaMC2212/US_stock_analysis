@@ -87,7 +87,6 @@ jobs:
           LOG_LEVEL: INFO
           MAX_WORKERS: ${{ vars.MAX_WORKERS || secrets.MAX_WORKERS || '1' }}
           ENABLE_CHIP_DISTRIBUTION: "false"
-          REALTIME_SOURCE_PRIORITY: ${{ vars.REALTIME_SOURCE_PRIORITY || 'tencent,akshare_sina,efinance,akshare_em' }}
 
         run: |
           MODE="${{ github.event.inputs.mode || 'full' }}"

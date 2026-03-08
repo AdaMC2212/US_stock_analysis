@@ -167,7 +167,7 @@ test_code_recognition() {
     python3 << 'PYTEST'
 import sys
 sys.path.insert(0, '.')
-from data_provider.akshare_fetcher import _is_hk_code, _is_us_code
+from data_provider.us_index_mapping import is_us_stock_code, is_us_index_code
 
 test_cases = [
     # (代码, 预期HK, 预期US, 描述)
@@ -184,8 +184,8 @@ print("\n股票代码识别测试:")
 print("-" * 60)
 all_pass = True
 for code, exp_hk, exp_us, desc in test_cases:
-    is_hk = _is_hk_code(code)
-    is_us = _is_us_code(code)
+    is_hk = False
+    is_us = is_us_stock_code(code) or is_us_index_code(code)
     hk_ok = is_hk == exp_hk
     us_ok = is_us == exp_us
     status = "✅" if (hk_ok and us_ok) else "❌"
