@@ -12,6 +12,45 @@ from typing import Any, Dict, List, Optional
 
 SCHEMA_VERSION = "2026-02-09"
 
+# US/email profile excludes unsupported notification channels from schema exposure.
+_HIDDEN_PROFILE_KEYS = {
+    "WECHAT_WEBHOOK_URL",
+    "WECHAT_MSG_TYPE",
+    "WECHAT_MAX_BYTES",
+    "FEISHU_WEBHOOK_URL",
+    "FEISHU_APP_ID",
+    "FEISHU_APP_SECRET",
+    "FEISHU_FOLDER_TOKEN",
+    "FEISHU_VERIFICATION_TOKEN",
+    "FEISHU_ENCRYPT_KEY",
+    "FEISHU_STREAM_ENABLED",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
+    "TELEGRAM_MESSAGE_THREAD_ID",
+    "TELEGRAM_WEBHOOK_SECRET",
+    "PUSHPLUS_TOKEN",
+    "PUSHPLUS_TOPIC",
+    "PUSHOVER_USER_KEY",
+    "PUSHOVER_API_TOKEN",
+    "SERVERCHAN3_SENDKEY",
+    "CUSTOM_WEBHOOK_URLS",
+    "CUSTOM_WEBHOOK_BEARER_TOKEN",
+    "WEBHOOK_VERIFY_SSL",
+    "DISCORD_WEBHOOK_URL",
+    "DISCORD_BOT_TOKEN",
+    "DISCORD_MAIN_CHANNEL_ID",
+    "DISCORD_BOT_STATUS",
+    "DINGTALK_APP_KEY",
+    "DINGTALK_APP_SECRET",
+    "DINGTALK_STREAM_ENABLED",
+    "WECOM_CORPID",
+    "WECOM_TOKEN",
+    "WECOM_ENCODING_AES_KEY",
+    "WECOM_AGENT_ID",
+    "ASTRBOT_URL",
+    "ASTRBOT_TOKEN",
+}
+
 _CATEGORY_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "category": "base",
@@ -66,14 +105,14 @@ _CATEGORY_DEFINITIONS: List[Dict[str, Any]] = [
 _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
     "STOCK_LIST": {
         "title": "Stock List",
-        "description": "Comma-separated watchlist stock codes.",
+        "description": "Comma-separated US watchlist tickers/index symbols.",
         "category": "base",
         "data_type": "array",
         "ui_control": "textarea",
         "is_sensitive": False,
         "is_required": False,
         "is_editable": True,
-        "default_value": "600519,300750,002594",
+        "default_value": "AAPL,MSFT,NVDA",
         "options": [],
         "validation": {"min_items": 1},
         "display_order": 10,
@@ -1129,16 +1168,16 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
     },
     "MARKET_REVIEW_REGION": {
         "title": "Market Review Region",
-        "description": "Market region for review: cn (A-shares), us (US stocks), or both.",
+        "description": "US-only profile: fixed to us.",
         "category": "system",
         "data_type": "string",
         "ui_control": "select",
         "is_sensitive": False,
         "is_required": False,
         "is_editable": True,
-        "default_value": "cn",
-        "options": ["cn", "us", "both"],
-        "validation": {"enum": ["cn", "us", "both"]},
+        "default_value": "us",
+        "options": ["us"],
+        "validation": {"enum": ["us"]},
         "display_order": 47,
     },
     "MAX_WORKERS": {
@@ -1319,13 +1358,13 @@ def get_category_definitions() -> List[Dict[str, Any]]:
 
 def get_registered_field_keys() -> List[str]:
     """Return all explicitly registered keys."""
-    return list(_FIELD_DEFINITIONS.keys())
+    return [k for k in _FIELD_DEFINITIONS.keys() if k not in _HIDDEN_PROFILE_KEYS]
 
 
 def get_field_definition(key: str, value_hint: Optional[str] = None) -> Dict[str, Any]:
     """Return field definition for key, including inferred fallback metadata."""
     key_upper = key.upper()
-    if key_upper in _FIELD_DEFINITIONS:
+    if key_upper in _FIELD_DEFINITIONS and key_upper not in _HIDDEN_PROFILE_KEYS:
         field = deepcopy(_FIELD_DEFINITIONS[key_upper])
         field["key"] = key_upper
         return field
@@ -1356,7 +1395,7 @@ def build_schema_response() -> Dict[str, Any]:
     for category in get_category_definitions():
         category_map[category["category"]] = {**category, "fields": []}
 
-    for key in sorted(_FIELD_DEFINITIONS.keys()):
+    for key in sorted(k for k in _FIELD_DEFINITIONS.keys() if k not in _HIDDEN_PROFILE_KEYS):
         field = get_field_definition(key)
         category_map[field["category"]]["fields"].append(field)
 
