@@ -28,7 +28,7 @@ concurrency:
 jobs:
   analyze:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -52,6 +52,7 @@ jobs:
       - name: Run analysis
         env:
           # Gemini only
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL || 'gemini-2.5-flash' }}
           GEMINI_MODEL_FALLBACK: ${{ vars.GEMINI_MODEL_FALLBACK || secrets.GEMINI_MODEL_FALLBACK || 'gemini-2.0-flash' }}
@@ -83,7 +84,7 @@ jobs:
           ANALYSIS_DELAY: ${{ vars.ANALYSIS_DELAY || secrets.ANALYSIS_DELAY || '0' }}
           TIMEZONE: ${{ vars.TIMEZONE || secrets.TIMEZONE || 'Asia/Kuala_Lumpur' }}
           SCHEDULE_TIME: ${{ vars.SCHEDULE_TIME || secrets.SCHEDULE_TIME || '08:00' }}
-          POST_MARKET_DELAY: ${{ vars.POST_MARKET_DELAY || secrets.POST_MARKET_DELAY || '30' }}
+          POST_MARKET_DELAY: ${{ vars.POST_MARKET_DELAY || secrets.POST_MARKET_DELAY || '0' }}
           HISTORICAL_LOOKBACK_DAYS: ${{ vars.HISTORICAL_LOOKBACK_DAYS || secrets.HISTORICAL_LOOKBACK_DAYS || '252' }}
           NEWS_MAX_AGE_DAYS: ${{ vars.NEWS_MAX_AGE_DAYS || secrets.NEWS_MAX_AGE_DAYS || '7' }}
           LOG_LEVEL: INFO
