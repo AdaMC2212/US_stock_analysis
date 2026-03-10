@@ -8,5 +8,6 @@
 """
 
 from .email_sender import EmailSender
+from .telegram_sender import TelegramSender
 
-__all__ = ["EmailSender"]
+__all__ = ["EmailSender", "TelegramSender"]

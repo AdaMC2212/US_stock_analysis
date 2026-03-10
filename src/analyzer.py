@@ -209,6 +209,8 @@ class AnalysisResult:
     key_points: str = ""  # 核心看点（3-5个要点）
     risk_warning: str = ""  # 风险提示
     buy_reason: str = ""  # 买入/卖出理由
+    monthly_priority_rank: int = 99
+    monthly_dip_opportunity: Optional[Dict[str, Any]] = None
 
     # ========== 元数据 ==========
     market_snapshot: Optional[Dict[str, Any]] = None  # 当日行情快照（展示用）
@@ -254,6 +256,8 @@ class AnalysisResult:
             'key_points': self.key_points,
             'risk_warning': self.risk_warning,
             'buy_reason': self.buy_reason,
+            'monthly_priority_rank': self.monthly_priority_rank,
+            'monthly_dip_opportunity': self.monthly_dip_opportunity,
             'market_snapshot': self.market_snapshot,
             'search_performed': self.search_performed,
             'success': self.success,
@@ -364,238 +368,71 @@ class GeminiAnalyzer:
     # 核心模块：核心结论 + 数据透视 + 舆情情报 + 作战计划
     # ========================================
 
-    SYSTEM_PROMPT = """你是一位专注于趋势交易的 A 股投资分析师，负责生成专业的【决策仪表盘】分析报告。
+    SYSTEM_PROMPT = """你是一位专注于长期持有优质美股（5-10年）的投资分析师。
 
-## 核心交易理念（必须严格遵守）
+优先级：
+1. 业务质量：收入与盈利的持续性、护城河、管理层执行力。
+2. 估值：PE、Forward PE、PEG、利润率、负债水平以及增长是否已被计价。
+3. 技术面仅用于入场与风险控制，不作为核心投资逻辑。
+4. 宏观环境：利率、波动率、美元强弱、行业顺风/逆风、盈利预期修正风险。
+5. 仓位管理：优先分批建仓与区间买入，而不是一次性全仓。
+6. 论证纪律：说明什么情况下继续持有、减仓或退出。
 
-### 1. 严进策略（不追高）
-- **绝对不追高**：当股价偏离 MA5 超过 5% 时，坚决不买入
-- **乖离率公式**：(现价 - MA5) / MA5 × 100%
-- 乖离率 < 2%：最佳买点区间
-- 乖离率 2-5%：可小仓介入
-- 乖离率 > 5%：严禁追高！直接判定为"观望"
+所有分析内容、建议和说明必须用中文输出，以节省token。JSON的key保持英文，value全部用中文。
 
-### 2. 趋势交易（顺势而为）
-- **多头排列必须条件**：MA5 > MA10 > MA20
-- 只做多头排列的股票，空头排列坚决不碰
-- 均线发散上行优于均线粘合
-- 趋势强度判断：看均线间距是否在扩大
+每只股票会标注 stock_tier（1或2）。
+- Tier 1（核心仓位）：长期持有型优质公司，重点给出适合每月定投的买入区间，不建议止盈，除非基本面恶化。
+- Tier 2（周期性股票）：需要在周期低点买入、高点止盈，必须在 monthly_dip_opportunity.trim_target 中给出具体止盈价格区间。
 
-### 3. 效率优先（筹码结构）
-- 关注筹码集中度：90%集中度 < 15% 表示筹码集中
-- 获利比例分析：70-90% 获利盘时需警惕获利回吐
-- 平均成本与现价关系：现价高于平均成本 5-15% 为健康
-
-### 4. 买点偏好（回踩支撑）
-- **最佳买点**：缩量回踩 MA5 获得支撑
-- **次优买点**：回踩 MA10 获得支撑
-- **观望情况**：跌破 MA20 时观望
-
-### 5. 风险排查重点
-- 减持公告（股东、高管减持）
-- 业绩预亏/大幅下滑
-- 监管处罚/立案调查
-- 行业政策利空
-- 大额解禁
-
-### 6. 估值关注（PE/PB）
-- 分析时请关注市盈率（PE）是否合理
-- PE 明显偏高时（如远超行业平均或历史均值），需在风险点中说明
-- 高成长股可适当容忍较高 PE，但需有业绩支撑
-
-### 7. 强势趋势股放宽
-- 强势趋势股（多头排列且趋势强度高、量能配合）可适当放宽乖离率要求
-- 此类股票可轻仓追踪，但仍需设置止损，不盲目追高
-
-## 输出格式：决策仪表盘 JSON
-
-请严格按照以下 JSON 格式输出，这是一个完整的【决策仪表盘】：
-
+输出必须为严格 JSON，仅包含以下字段：
 ```json
 {
     "stock_name": "股票中文名称",
     "sentiment_score": 0-100整数,
     "trend_prediction": "强烈看多/看多/震荡/看空/强烈看空",
-    "operation_advice": "买入/加仓/持有/减仓/卖出/观望",
-    "decision_type": "buy/hold/sell",
+    "operation_advice": "加仓/持有/减仓/卖出/观望",
+    "decision_type": "买入/持有/卖出",
     "confidence_level": "高/中/低",
-
-    "dashboard": {
-        "core_conclusion": {
-            "one_sentence": "一句话核心结论（30字以内，直接告诉用户做什么）",
-            "signal_type": "🟢买入信号/🟡持有观望/🔴卖出信号/⚠️风险警告",
-            "time_sensitivity": "立即行动/今日内/本周内/不急",
-            "position_advice": {
-                "no_position": "空仓者建议：具体操作指引",
-                "has_position": "持仓者建议：具体操作指引"
-            }
-        },
-
-        "data_perspective": {
-            "trend_status": {
-                "ma_alignment": "均线排列状态描述",
-                "is_bullish": true/false,
-                "trend_score": 0-100
-            },
-            "price_position": {
-                "current_price": 当前价格数值,
-                "ma5": MA5数值,
-                "ma10": MA10数值,
-                "ma20": MA20数值,
-                "bias_ma5": 乖离率百分比数值,
-                "bias_status": "安全/警戒/危险",
-                "support_level": 支撑位价格,
-                "resistance_level": 压力位价格
-            },
-            "volume_analysis": {
-                "volume_ratio": 量比数值,
-                "volume_status": "放量/缩量/平量",
-                "turnover_rate": 换手率百分比,
-                "volume_meaning": "量能含义解读（如：缩量回调表示抛压减轻）"
-            },
-            "chip_structure": {
-                "profit_ratio": 获利比例,
-                "avg_cost": 平均成本,
-                "concentration": 筹码集中度,
-                "chip_health": "健康/一般/警惕"
-            }
-        },
-
-        "intelligence": {
-            "latest_news": "【最新消息】近期重要新闻摘要",
-            "risk_alerts": ["风险点1：具体描述", "风险点2：具体描述"],
-            "positive_catalysts": ["利好1：具体描述", "利好2：具体描述"],
-            "earnings_outlook": "业绩预期分析（基于年报预告、业绩快报等）",
-            "sentiment_summary": "舆情情绪一句话总结"
-        },
-
-        "battle_plan": {
-            "sniper_points": {
-                "ideal_buy": "理想买入点：XX元（在MA5附近）",
-                "secondary_buy": "次优买入点：XX元（在MA10附近）",
-                "stop_loss": "止损位：XX元（跌破MA20或X%）",
-                "take_profit": "目标位：XX元（前高/整数关口）"
-            },
-            "position_strategy": {
-                "suggested_position": "建议仓位：X成",
-                "entry_plan": "分批建仓策略描述",
-                "risk_control": "风控策略描述"
-            },
-            "action_checklist": [
-                "✅/⚠️/❌ 检查项1：多头排列",
-                "✅/⚠️/❌ 检查项2：乖离率合理（强势趋势可放宽）",
-                "✅/⚠️/❌ 检查项3：量能配合",
-                "✅/⚠️/❌ 检查项4：无重大利空",
-                "✅/⚠️/❌ 检查项5：筹码健康",
-                "✅/⚠️/❌ 检查项6：PE估值合理"
-            ]
-        }
-    },
-
-    "analysis_summary": "100字综合分析摘要",
+    "time_horizon": "长期/中期/短期",
+    "dashboard": {},
+    "analysis_summary": "综合分析摘要",
     "key_points": "3-5个核心看点，逗号分隔",
     "risk_warning": "风险提示",
-    "buy_reason": "操作理由，引用交易理念",
-
-    "trend_analysis": "走势形态分析",
-    "short_term_outlook": "短期1-3日展望",
-    "medium_term_outlook": "中期1-2周展望",
-    "technical_analysis": "技术面综合分析",
-    "ma_analysis": "均线系统分析",
+    "buy_reason": "操作理由",
+    "trend_analysis": "走势分析",
+    "short_term_outlook": "短期展望",
+    "medium_term_outlook": "中期展望",
+    "technical_analysis": "技术面分析",
+    "ma_analysis": "均线分析",
     "volume_analysis": "量能分析",
-    "pattern_analysis": "K线形态分析",
+    "pattern_analysis": "形态分析",
     "fundamental_analysis": "基本面分析",
     "sector_position": "板块行业分析",
     "company_highlights": "公司亮点/风险",
     "news_summary": "新闻摘要",
     "market_sentiment": "市场情绪",
     "hot_topics": "相关热点",
-
     "search_performed": true/false,
-    "data_sources": "数据来源说明"
+    "data_sources": "数据来源说明",
+    "monthly_dip_opportunity": {
+        "verdict": "立即买入/等待回调/本月跳过",
+        "dip_entry_zone": "具体价格区间，如 $102–$106",
+        "dip_probability": "高/中/低",
+        "catalyst_strength": "强/一般/噪音",
+        "catalyst_summary": "一句话说明最重要的催化剂",
+        "trim_target": "止盈价格区间（仅Tier 2填写，Tier 1填null）"
+    },
+    "monthly_priority_rank": 1
 }
 ```
 
-## 评分标准
+评分参考：
+- 80-100：优质长期标的，估值与趋势允许分批买入。
+- 60-79：质地不错，但估值或执行存在不确定性，建议分批建仓。
+- 40-59：基本面或估值仍待验证，观望为主。
+- 0-39：逻辑恶化或估值明显过高，谨慎持有或退出。
 
-### 强烈买入（80-100分）：
-- ✅ 多头排列：MA5 > MA10 > MA20
-- ✅ 低乖离率：<2%，最佳买点
-- ✅ 缩量回调或放量突破
-- ✅ 筹码集中健康
-- ✅ 消息面有利好催化
-
-### 买入（60-79分）：
-- ✅ 多头排列或弱势多头
-- ✅ 乖离率 <5%
-- ✅ 量能正常
-- ⚪ 允许一项次要条件不满足
-
-### 观望（40-59分）：
-- ⚠️ 乖离率 >5%（追高风险）
-- ⚠️ 均线缠绕趋势不明
-- ⚠️ 有风险事件
-
-### 卖出/减仓（0-39分）：
-- ❌ 空头排列
-- ❌ 跌破MA20
-- ❌ 放量下跌
-- ❌ 重大利空
-
-## 决策仪表盘核心原则
-
-1. **核心结论先行**：一句话说清该买该卖
-2. **分持仓建议**：空仓者和持仓者给不同建议
-3. **精确狙击点**：必须给出具体价格，不说模糊的话
-4. **检查清单可视化**：用 ✅⚠️❌ 明确显示每项检查结果
-5. **风险优先级**：舆情中的风险点要醒目标出"""
-
-    SYSTEM_PROMPT = """You are a long-term equity investor focused on holding quality US stocks for 5-10 years.
-
-Priorities:
-1. Business quality: revenue and earnings durability, moat, management execution.
-2. Valuation: PE, forward PE, PEG, margins, debt load, and whether growth is already priced in.
-3. Technicals only as entry and risk tools, not as the primary thesis.
-4. Macro context: rates, volatility, dollar strength, sector tailwinds/headwinds, and earnings revision risk.
-5. Position sizing: prefer accumulation zones and staged entries over single all-in calls.
-6. Thesis discipline: explain what would make you hold, trim, or exit over a multi-quarter horizon.
-
-Output strict JSON only. Required fields:
-- stock_name
-- sentiment_score
-- trend_prediction
-- operation_advice: Accumulate/Hold/Trim/Exit/Watch
-- decision_type: buy/hold/sell
-- confidence_level: High/Medium/Low
-- time_horizon: long_term/medium_term/short_term
-- dashboard
-- analysis_summary
-- key_points
-- risk_warning
-- buy_reason
-- trend_analysis
-- short_term_outlook
-- medium_term_outlook
-- technical_analysis
-- ma_analysis
-- volume_analysis
-- pattern_analysis
-- fundamental_analysis
-- sector_position
-- company_highlights
-- news_summary
-- market_sentiment
-- hot_topics
-- search_performed
-- data_sources
-
-Scoring guidance:
-- 80-100: high-quality compounder with durable thesis and acceptable entry.
-- 60-79: attractive business, but valuation or execution risk requires staged accumulation.
-- 40-59: mixed setup, monitor and wait for better valuation or confirmation.
-- 0-39: thesis deterioration, valuation excess without support, or clear exit conditions.
-
-Explain clearly whether a signal is short-term noise or long-term relevant."""
+请明确这是短期噪音还是长期有效的关键信号。"""
 
     def __init__(self, api_key: Optional[str] = None):
         """Initialize LLM Analyzer via LiteLLM.
@@ -786,7 +623,9 @@ Explain clearly whether a signal is short-term noise or long-term relevant."""
     def analyze(
         self, 
         context: Dict[str, Any],
-        news_context: Optional[str] = None
+        news_context: Optional[str] = None,
+        stock_tier: int = 1,
+        position: Optional[Dict] = None
     ) -> AnalysisResult:
         """
         分析单只股票
@@ -800,6 +639,8 @@ Explain clearly whether a signal is short-term noise or long-term relevant."""
         Args:
             context: 从 storage.get_analysis_context() 获取的上下文数据
             news_context: 预先搜索的新闻内容（可选）
+            stock_tier: 股票层级（1=核心，2=周期）
+            position: 持仓信息（可选）
             
         Returns:
             AnalysisResult 对象
@@ -842,7 +683,13 @@ Explain clearly whether a signal is short-term noise or long-term relevant."""
         
         try:
             # 格式化输入（包含技术面数据和新闻）
-            prompt = self._format_prompt(context, name, news_context)
+            prompt = self._format_prompt(
+                context,
+                name,
+                news_context,
+                stock_tier=stock_tier,
+                position=position,
+            )
             
             config = get_config()
             model_name = config.litellm_model or "unknown"
@@ -909,17 +756,21 @@ Explain clearly whether a signal is short-term noise or long-term relevant."""
         self, 
         context: Dict[str, Any], 
         name: str,
-        news_context: Optional[str] = None
+        news_context: Optional[str] = None,
+        stock_tier: int = 1,
+        position: Optional[Dict] = None
     ) -> str:
         """
         格式化分析提示词（决策仪表盘 v2.0）
         
-        包含：技术指标、实时行情（量比/换手率）、筹码分布、趋势分析、新闻
+        包含：技术指标、实时行情（量比/换手率）、趋势分析、新闻
         
         Args:
             context: 技术面数据上下文（包含增强数据）
             name: 股票名称（默认值，可能被上下文覆盖）
             news_context: 预先搜索的新闻内容
+            stock_tier: 股票层级（1=核心，2=周期）
+            position: 持仓信息（可选）
         """
         code = context.get('code', 'Unknown')
         
@@ -929,6 +780,49 @@ Explain clearly whether a signal is short-term noise or long-term relevant."""
             stock_name = STOCK_NAME_MAP.get(code, f'股票{code}')
             
         today = context.get('today', {})
+
+        def _format_number(
+            value: Optional[float],
+            decimals: int = 2,
+            sign: bool = False,
+            suffix: str = "",
+        ) -> str:
+            if value is None:
+                return "暂无"
+            try:
+                val = float(value)
+            except (TypeError, ValueError):
+                return "暂无"
+            fmt = f"+.{decimals}f" if sign else f".{decimals}f"
+            return f"{val:{fmt}}{suffix}"
+
+        def _format_price(value: Optional[float]) -> str:
+            if value is None:
+                return "暂无"
+            try:
+                val = float(value)
+            except (TypeError, ValueError):
+                return "暂无"
+            return f"${val:.2f}"
+
+        if position:
+            shares_text = _format_number(position.get("shares"), decimals=2)
+            avg_buy_price = _format_price(position.get("avg_buy_price"))
+            pnl_pct_text = _format_number(position.get("pnl_pct"), decimals=1, sign=True, suffix="%")
+            allocation_text = _format_number(position.get("allocation_pct"), decimals=1, suffix="%")
+            tier_desc = "核心长期持仓" if stock_tier == 1 else "周期性，需止盈"
+            position_block = f"""### 投资者持仓信息
+- 股票层级: Tier {stock_tier}（{tier_desc}）
+- 当前持仓: {shares_text}股 均价{avg_buy_price} 当前盈亏{pnl_pct_text}
+- 仓位占比: {allocation_text}
+请根据以上持仓信息个性化买入建议。若仓位已超过35%，建议本月减少加仓。
+"""
+        else:
+            position_block = f"""### 投资者持仓信息
+- 股票层级: Tier {stock_tier}
+- 当前持仓: 暂未持有
+- 建议从小仓位开始建仓。
+"""
         
         # ========== 构建决策仪表盘格式的输入 ==========
         prompt = f"""# 决策仪表盘分析请求
@@ -940,6 +834,9 @@ Explain clearly whether a signal is short-term noise or long-term relevant."""
 | 股票名称 | **{stock_name}** |
 | 分析日期 | {context.get('date', '未知')} |
 
+---
+
+{position_block}
 ---
 
 ## 📈 技术面数据
@@ -1002,21 +899,6 @@ Explain clearly whether a signal is short-term noise or long-term relevant."""
 | Sector | {fd.get('sector', 'N/A')} |
 | Industry | {fd.get('industry', 'N/A')} |
 | Earnings Date | {fd.get('earnings_date', 'N/A')} |
-"""
-        
-        # 添加筹码分布数据
-        if 'chip' in context:
-            chip = context['chip']
-            profit_ratio = chip.get('profit_ratio', 0)
-            prompt += f"""
-### 筹码分布数据（效率指标）
-| 指标 | 数值 | 健康标准 |
-|------|------|----------|
-| **获利比例** | **{profit_ratio:.1%}** | 70-90%时警惕 |
-| 平均成本 | {chip.get('avg_cost', 'N/A')} 元 | 现价应高于5-15% |
-| 90%筹码集中度 | {chip.get('concentration_90', 0):.2%} | <15%为集中 |
-| 70%筹码集中度 | {chip.get('concentration_70', 0):.2%} | |
-| 筹码状态 | {chip.get('chip_status', '未知')} | |
 """
         
         # 添加趋势分析结果（基于交易理念的预判）
@@ -1291,6 +1173,13 @@ Explain clearly whether a signal is short-term noise or long-term relevant."""
                 # 解析 decision_type，如果没有则根据 operation_advice 推断
                 operation_advice = self._normalize_operation_advice(data.get('operation_advice', 'Watch'))
                 decision_type = self._normalize_decision_type(data.get('decision_type', ''), operation_advice)
+
+                monthly_priority_rank = data.get('monthly_priority_rank', 99)
+                try:
+                    monthly_priority_rank = int(monthly_priority_rank)
+                except (TypeError, ValueError):
+                    monthly_priority_rank = 99
+                monthly_dip_opportunity = data.get('monthly_dip_opportunity')
                 
                 return AnalysisResult(
                     code=code,
@@ -1326,6 +1215,8 @@ Explain clearly whether a signal is short-term noise or long-term relevant."""
                     key_points=data.get('key_points', ''),
                     risk_warning=data.get('risk_warning', ''),
                     buy_reason=data.get('buy_reason', ''),
+                    monthly_priority_rank=monthly_priority_rank,
+                    monthly_dip_opportunity=monthly_dip_opportunity,
                     # 元数据
                     search_performed=data.get('search_performed', False),
                     data_sources=data.get('data_sources', '技术面数据'),

@@ -14,7 +14,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional
 from dotenv import load_dotenv, dotenv_values
 from dataclasses import dataclass, field
 
@@ -70,11 +70,14 @@ class Config:
     
     # === 自选股配置 ===
     stock_list: List[str] = field(default_factory=list)
+    tier1_stocks: List[str] = field(default_factory=list)
+    tier2_stocks: List[str] = field(default_factory=list)
+    monthly_deposit_date: int = 1
 
-    # === 飞书云文档配置 ===
-    feishu_app_id: Optional[str] = None
-    feishu_app_secret: Optional[str] = None
-    feishu_folder_token: Optional[str] = None  # 目标文件夹 Token
+    google_credentials_json: Optional[str] = None
+    google_sheet_id: Optional[str] = None
+    google_sheet_tab: str = "Portfolio"
+
 
     # === 数据源 API Token ===
     
@@ -145,83 +148,22 @@ class Config:
     agent_skills: List[str] = field(default_factory=list)
     agent_strategy_dir: Optional[str] = None
 
-    # === 通知配置（可同时配置多个，全部推送）===
-    
-    # 企业微信 Webhook
-    wechat_webhook_url: Optional[str] = None
-    
-    # 飞书 Webhook
-    feishu_webhook_url: Optional[str] = None
-    
-    # Telegram 配置（需要同时配置 Bot Token 和 Chat ID）
-    telegram_bot_token: Optional[str] = None  # Bot Token（@BotFather 获取）
+    telegram_bot_token: Optional[str] = None  # Bot Token (@BotFather)
     telegram_chat_id: Optional[str] = None  # Chat ID
     telegram_message_thread_id: Optional[str] = None  # Topic ID (Message Thread ID) for groups
-    
-    # 邮件配置（只需邮箱和授权码，SMTP 自动识别）
-    email_sender: Optional[str] = None  # 发件人邮箱
-    email_sender_name: str = "daily_stock_analysis股票分析助手"  # 发件人显示名称
-    email_password: Optional[str] = None  # 邮箱密码/授权码
-    email_receivers: List[str] = field(default_factory=list)  # 收件人列表（留空则发给自己）
+    telegram_webhook_secret: Optional[str] = None  # Webhook secret
 
-    # Stock-to-email group routing (Issue #268): STOCK_GROUP_N + EMAIL_GROUP_N
-    # When configured, each group's report is sent to that group's emails only.
-    stock_email_groups: List[Tuple[List[str], List[str]]] = field(default_factory=list)
-
-    # Pushover 配置（手机/桌面推送通知）
-    pushover_user_key: Optional[str] = None  # 用户 Key（https://pushover.net 获取）
-    pushover_api_token: Optional[str] = None  # 应用 API Token
-    
-    # 自定义 Webhook（支持多个，逗号分隔）
-    # 适用于：钉钉、Discord、Slack、自建服务等任意支持 POST JSON 的 Webhook
-    custom_webhook_urls: List[str] = field(default_factory=list)
-    custom_webhook_bearer_token: Optional[str] = None  # Bearer Token（用于需要认证的 Webhook）
-    webhook_verify_ssl: bool = True  # Webhook HTTPS 证书校验，false 可支持自签名（有 MITM 风险）
-
-    # Discord 通知配置
-    discord_bot_token: Optional[str] = None  # Discord Bot Token
-    discord_main_channel_id: Optional[str] = None  # Discord 主频道 ID
-    discord_webhook_url: Optional[str] = None  # Discord Webhook URL
-
-    # AstrBot 通知配置
-    astrbot_token: Optional[str] = None
-    astrbot_url: Optional[str] = None
-
-    # 单股推送模式：每分析完一只股票立即推送，而不是汇总后推送
-    single_stock_notify: bool = False
-
-    # 报告类型：simple(精简) 或 full(完整)
-    report_type: str = "simple"
-
-    # 仅分析结果摘要：true 时只推送汇总，不含个股详情（Issue #262）
-    report_summary_only: bool = False
-
-    # PushPlus 推送配置
-    pushplus_token: Optional[str] = None  # PushPlus Token
-    pushplus_topic: Optional[str] = None  # PushPlus 群组编码（一对多推送）
-
-    # Server酱3 推送配置
-    serverchan3_sendkey: Optional[str] = None  # Server酱3 SendKey
-
-    # 分析间隔时间（秒）- 用于避免API限流
-    analysis_delay: float = 0.0  # 个股分析与大盘分析之间的延迟
-
-    # Merge stock + market report into one notification (Issue #190)
-    merge_email_notification: bool = False
-
-    # 消息长度限制（字节）- 超长自动分批发送
-    feishu_max_bytes: int = 20000  # 飞书限制约 20KB，默认 20000 字节
-    wechat_max_bytes: int = 4000   # 企业微信限制 4096 字节，默认 4000 字节
-    discord_max_words: int = 2000  # Discord 限制 2000 字，默认 2000 字
-    wechat_msg_type: str = "markdown"  # 企业微信消息类型，默认 markdown 类型
-
-    # Markdown 转图片（Issue #289）：对不支持 Markdown 的渠道以图片发送
-    markdown_to_image_channels: List[str] = field(default_factory=list)  # 逗号分隔：telegram,wechat,custom,email
-    markdown_to_image_max_chars: int = 15000  # 超过此长度不转换，避免超大图片
+    markdown_to_image_channels: List[str] = field(default_factory=list)
+    markdown_to_image_max_chars: int = 15000
     md2img_engine: str = "wkhtmltoimage"  # wkhtmltoimage | markdown-to-file (Issue #455, better emoji support)
 
+    single_stock_notify: bool = False
 
-    # === 数据库配置 ===
+    report_type: str = "simple"
+
+    report_summary_only: bool = False
+
+
     database_path: str = "./data/stock_analysis.db"
 
     # 是否保存分析上下文快照（用于历史回溯）
@@ -267,8 +209,6 @@ class Config:
     # 熔断器冷却时间（秒）
     circuit_breaker_cooldown: int = 300
 
-    # Discord 机器人状态
-    discord_bot_status: str = "A股智能分析 | /help"
 
     # === 流控配置（防封禁关键参数）===
     # Akshare 请求间隔范围（秒）
@@ -291,29 +231,6 @@ class Config:
     bot_rate_limit_requests: int = 10     # 频率限制：窗口内最大请求数
     bot_rate_limit_window: int = 60       # 频率限制：窗口时间（秒）
     bot_admin_users: List[str] = field(default_factory=list)  # 管理员用户 ID 列表
-    
-    # 飞书机器人（事件订阅）- 已有 feishu_app_id, feishu_app_secret
-    feishu_verification_token: Optional[str] = None  # 事件订阅验证 Token
-    feishu_encrypt_key: Optional[str] = None         # 消息加密密钥（可选）
-    feishu_stream_enabled: bool = False              # 是否启用 Stream 长连接模式（无需公网IP）
-    
-    # 钉钉机器人
-    dingtalk_app_key: Optional[str] = None      # 应用 AppKey
-    dingtalk_app_secret: Optional[str] = None   # 应用 AppSecret
-    dingtalk_stream_enabled: bool = False       # 是否启用 Stream 模式（无需公网IP）
-    
-    # 企业微信机器人（回调模式）
-    wecom_corpid: Optional[str] = None              # 企业 ID
-    wecom_token: Optional[str] = None               # 回调 Token
-    wecom_encoding_aes_key: Optional[str] = None    # 消息加解密密钥
-    wecom_agent_id: Optional[str] = None            # 应用 AgentId
-    
-    # Telegram 机器人 - 已有 telegram_bot_token, telegram_chat_id
-    telegram_webhook_secret: Optional[str] = None   # Webhook 密钥
-
-    # === 配置校验模式 ===
-    # CONFIG_VALIDATE_MODE=warn (default): log all issues but always continue startup
-    # CONFIG_VALIDATE_MODE=strict: exit(1) when any "error" severity issue is found
     config_validate_mode: str = "warn"
 
     # 单例实例存储
@@ -350,7 +267,6 @@ class Config:
         # 如果配置了代理，自动设置 NO_PROXY 以排除国内数据源，避免行情获取失败
         http_proxy = os.getenv('HTTP_PROXY') or os.getenv('http_proxy')
         if http_proxy:
-            # 国内金融数据源域名列表
             domestic_domains = [
                 'eastmoney.com',   # 东方财富 (Efinance/Akshare)
                 'sina.com.cn',     # 新浪财经 (Akshare)
@@ -365,23 +281,18 @@ class Config:
                 '127.0.0.1'
             ]
 
-            # 获取现有的 no_proxy
             current_no_proxy = os.getenv('NO_PROXY') or os.getenv('no_proxy') or ''
             existing_domains = current_no_proxy.split(',') if current_no_proxy else []
 
-            # 合并去重
             final_domains = list(set(existing_domains + domestic_domains))
             final_no_proxy = ','.join(filter(None, final_domains))
 
-            # 设置环境变量 (requests/urllib3/aiohttp 都会遵守此设置)
             os.environ['NO_PROXY'] = final_no_proxy
             os.environ['no_proxy'] = final_no_proxy
 
-            # 确保 HTTP_PROXY 也被正确设置（以防仅在 .env 中定义但未导出）
             os.environ['HTTP_PROXY'] = http_proxy
             os.environ['http_proxy'] = http_proxy
 
-            # HTTPS_PROXY 同理
             https_proxy = os.getenv('HTTPS_PROXY') or os.getenv('https_proxy')
             if https_proxy:
                 os.environ['HTTPS_PROXY'] = https_proxy
@@ -399,6 +310,22 @@ class Config:
         # 如果没有配置，使用默认的示例股票
         if not stock_list:
             stock_list = ['AAPL', 'MSFT', 'NVDA']
+        tier1_stocks = [
+            (c or "").strip().upper()
+            for c in os.getenv('TIER1_STOCKS', '').split(',')
+            if (c or "").strip()
+        ]
+        tier2_stocks = [
+            (c or "").strip().upper()
+            for c in os.getenv('TIER2_STOCKS', '').split(',')
+            if (c or "").strip()
+        ]
+        monthly_deposit_date = int(os.getenv('MONTHLY_DEPOSIT_DATE', '1'))
+
+        google_credentials_json = os.getenv('GOOGLE_CREDENTIALS_JSON')
+        google_sheet_id = os.getenv('GOOGLE_SHEET_ID')
+        google_sheet_tab = os.getenv('GOOGLE_SHEET_TAB', 'Portfolio')
+
         
         # === LiteLLM multi-key parsing ===
         # GEMINI_API_KEYS (comma-separated) > GEMINI_API_KEY (single)
@@ -457,7 +384,6 @@ class Config:
         if _fallback_str.strip():
             litellm_fallback_models = [m.strip() for m in _fallback_str.split(',') if m.strip()]
         else:
-            # Backward compat: use gemini_model_fallback when primary is gemini
             _gemini_fallback = os.getenv('GEMINI_MODEL_FALLBACK', 'gemini-2.5-flash').strip()
             if litellm_model.startswith('gemini/') and _gemini_fallback:
                 _fb = f'gemini/{_gemini_fallback}' if '/' not in _gemini_fallback else _gemini_fallback
@@ -521,22 +447,14 @@ class Config:
 
         brave_keys_str = os.getenv('BRAVE_API_KEYS', '')
         brave_api_keys = [k.strip() for k in brave_keys_str.split(',') if k.strip()]
-
-        # 企微消息类型与最大字节数逻辑
-        wechat_msg_type = os.getenv('WECHAT_MSG_TYPE', 'markdown')
-        wechat_msg_type_lower = wechat_msg_type.lower()
-        wechat_max_bytes_env = os.getenv('WECHAT_MAX_BYTES')
-        if wechat_max_bytes_env not in (None, ''):
-            wechat_max_bytes = int(wechat_max_bytes_env)
-        else:
-            # 未显式配置时，根据消息类型选择默认字节数
-            wechat_max_bytes = 2048 if wechat_msg_type_lower == 'text' else 4000
-        
         return cls(
             stock_list=stock_list,
-            feishu_app_id=os.getenv('FEISHU_APP_ID'),
-            feishu_app_secret=os.getenv('FEISHU_APP_SECRET'),
-            feishu_folder_token=os.getenv('FEISHU_FOLDER_TOKEN'),
+            tier1_stocks=tier1_stocks,
+            tier2_stocks=tier2_stocks,
+            monthly_deposit_date=monthly_deposit_date,
+            google_credentials_json=google_credentials_json,
+            google_sheet_id=google_sheet_id,
+            google_sheet_tab=google_sheet_tab,
             litellm_model=litellm_model,
             litellm_fallback_models=litellm_fallback_models,
             litellm_config_path=litellm_config_path,
@@ -557,12 +475,6 @@ class Config:
             anthropic_model=os.getenv('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022'),
             anthropic_temperature=float(os.getenv('ANTHROPIC_TEMPERATURE', '0.7')),
             anthropic_max_tokens=int(os.getenv('ANTHROPIC_MAX_TOKENS', '8192')),
-            # AIHubmix is the preferred OpenAI-compatible provider (one key, all models, no VPN required).
-            # Within the OpenAI-compatible layer: AIHUBMIX_KEY takes priority over OPENAI_API_KEY.
-            # Overall provider fallback order: Gemini > Anthropic > OpenAI-compatible (incl. AIHubmix).
-            # base_url is auto-set to aihubmix.com/v1 when AIHUBMIX_KEY is used and no explicit
-            # OPENAI_BASE_URL override is provided.
-            # Model names match upstream (e.g. gemini-3.1-pro-preview, gpt-4o, gpt-4o-free, deepseek-chat).
             openai_api_key=os.getenv('AIHUBMIX_KEY') or os.getenv('OPENAI_API_KEY') or None,
             openai_base_url=os.getenv('OPENAI_BASE_URL') or (
                 'https://aihubmix.com/v1' if os.getenv('AIHUBMIX_KEY') else None
@@ -570,7 +482,6 @@ class Config:
             openai_model=os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),
             openai_vision_model=os.getenv('OPENAI_VISION_MODEL') or None,
             openai_temperature=float(os.getenv('OPENAI_TEMPERATURE', '0.7')),
-            # Vision model: VISION_MODEL > OPENAI_VISION_MODEL (alias) > default
             vision_model=(
                 os.getenv('VISION_MODEL')
                 or os.getenv('OPENAI_VISION_MODEL')
@@ -588,38 +499,13 @@ class Config:
             agent_max_steps=int(os.getenv('AGENT_MAX_STEPS', '10')),
             agent_skills=[s.strip() for s in os.getenv('AGENT_SKILLS', '').split(',') if s.strip()],
             agent_strategy_dir=os.getenv('AGENT_STRATEGY_DIR'),
-            wechat_webhook_url=os.getenv('WECHAT_WEBHOOK_URL'),
-            feishu_webhook_url=os.getenv('FEISHU_WEBHOOK_URL'),
             telegram_bot_token=os.getenv('TELEGRAM_BOT_TOKEN'),
             telegram_chat_id=os.getenv('TELEGRAM_CHAT_ID'),
             telegram_message_thread_id=os.getenv('TELEGRAM_MESSAGE_THREAD_ID'),
-            email_sender=os.getenv('EMAIL_SENDER'),
-            email_sender_name=os.getenv('EMAIL_SENDER_NAME', 'daily_stock_analysis股票分析助手'),
-            email_password=os.getenv('EMAIL_PASSWORD'),
-            email_receivers=[r.strip() for r in os.getenv('EMAIL_RECEIVERS', '').split(',') if r.strip()],
-            stock_email_groups=cls._parse_stock_email_groups(),
-            pushover_user_key=os.getenv('PUSHOVER_USER_KEY'),
-            pushover_api_token=os.getenv('PUSHOVER_API_TOKEN'),
-            pushplus_token=os.getenv('PUSHPLUS_TOKEN'),
-            pushplus_topic=os.getenv('PUSHPLUS_TOPIC'),
-            serverchan3_sendkey=os.getenv('SERVERCHAN3_SENDKEY'),
-            custom_webhook_urls=[u.strip() for u in os.getenv('CUSTOM_WEBHOOK_URLS', '').split(',') if u.strip()],
-            custom_webhook_bearer_token=os.getenv('CUSTOM_WEBHOOK_BEARER_TOKEN'),
-            webhook_verify_ssl=os.getenv('WEBHOOK_VERIFY_SSL', 'true').lower() == 'true',
-            discord_bot_token=os.getenv('DISCORD_BOT_TOKEN'),
-            discord_main_channel_id=os.getenv('DISCORD_MAIN_CHANNEL_ID'),
-            discord_webhook_url=os.getenv('DISCORD_WEBHOOK_URL'),
-            astrbot_url=os.getenv('ASTRBOT_URL'),
-            astrbot_token=os.getenv('ASTRBOT_TOKEN'),
             single_stock_notify=os.getenv('SINGLE_STOCK_NOTIFY', 'false').lower() == 'true',
             report_type=os.getenv('REPORT_TYPE', 'simple').lower(),
             report_summary_only=os.getenv('REPORT_SUMMARY_ONLY', 'false').lower() == 'true',
             analysis_delay=float(os.getenv('ANALYSIS_DELAY', '0')),
-            merge_email_notification=os.getenv('MERGE_EMAIL_NOTIFICATION', 'false').lower() == 'true',
-            feishu_max_bytes=int(os.getenv('FEISHU_MAX_BYTES', '20000')),
-            wechat_max_bytes=wechat_max_bytes,
-            wechat_msg_type=wechat_msg_type_lower,
-            discord_max_words=int(os.getenv('DISCORD_MAX_WORDS', '2000')),
             markdown_to_image_channels=[
                 c.strip().lower()
                 for c in os.getenv('MARKDOWN_TO_IMAGE_CHANNELS', '').split(',')
@@ -655,39 +541,17 @@ class Config:
             webui_enabled=os.getenv('WEBUI_ENABLED', 'false').lower() == 'true',
             webui_host=os.getenv('WEBUI_HOST', '127.0.0.1'),
             webui_port=int(os.getenv('WEBUI_PORT', '8000')),
-            # 机器人配置
             bot_enabled=os.getenv('BOT_ENABLED', 'true').lower() == 'true',
             bot_command_prefix=os.getenv('BOT_COMMAND_PREFIX', '/'),
             bot_rate_limit_requests=int(os.getenv('BOT_RATE_LIMIT_REQUESTS', '10')),
             bot_rate_limit_window=int(os.getenv('BOT_RATE_LIMIT_WINDOW', '60')),
             bot_admin_users=[u.strip() for u in os.getenv('BOT_ADMIN_USERS', '').split(',') if u.strip()],
-            # 飞书机器人
-            feishu_verification_token=os.getenv('FEISHU_VERIFICATION_TOKEN'),
-            feishu_encrypt_key=os.getenv('FEISHU_ENCRYPT_KEY'),
-            feishu_stream_enabled=os.getenv('FEISHU_STREAM_ENABLED', 'false').lower() == 'true',
-            # 钉钉机器人
-            dingtalk_app_key=os.getenv('DINGTALK_APP_KEY'),
-            dingtalk_app_secret=os.getenv('DINGTALK_APP_SECRET'),
-            dingtalk_stream_enabled=os.getenv('DINGTALK_STREAM_ENABLED', 'false').lower() == 'true',
-            # 企业微信机器人
-            wecom_corpid=os.getenv('WECOM_CORPID'),
-            wecom_token=os.getenv('WECOM_TOKEN'),
-            wecom_encoding_aes_key=os.getenv('WECOM_ENCODING_AES_KEY'),
-            wecom_agent_id=os.getenv('WECOM_AGENT_ID'),
-            # Telegram
             telegram_webhook_secret=os.getenv('TELEGRAM_WEBHOOK_SECRET'),
-            # Discord 机器人扩展配置
-            discord_bot_status=os.getenv('DISCORD_BOT_STATUS', 'A股智能分析 | /help'),
-            # 实时行情增强数据配置
             enable_realtime_quote=os.getenv('ENABLE_REALTIME_QUOTE', 'true').lower() == 'true',
             enable_realtime_technical_indicators=os.getenv(
                 'ENABLE_REALTIME_TECHNICAL_INDICATORS', 'true'
             ).lower() == 'true',
             enable_chip_distribution=os.getenv('ENABLE_CHIP_DISTRIBUTION', 'true').lower() == 'true',
-            # 东财接口补丁开关
-            # 实时行情数据源优先级：
-            # - tencent: 腾讯财经，有量比/换手率/PE/PB等，单股查询稳定（推荐）
-            # - akshare_sina: 新浪财经，基本行情稳定，但无量比
             realtime_cache_ttl=int(os.getenv('REALTIME_CACHE_TTL', '600')),
             circuit_breaker_cooldown=int(os.getenv('CIRCUIT_BREAKER_COOLDOWN', '300'))
         )
@@ -760,7 +624,6 @@ class Config:
 
             base_url = os.getenv(f'LLM_{ch_upper}_BASE_URL', '').strip() or None
 
-            # API keys: LLM_{NAME}_API_KEYS (multi) > LLM_{NAME}_API_KEY (single)
             api_keys_raw = os.getenv(f'LLM_{ch_upper}_API_KEYS', '')
             api_keys = [k.strip() for k in api_keys_raw.split(',') if k.strip()]
             if not api_keys:
@@ -768,16 +631,13 @@ class Config:
                 if single_key:
                     api_keys = [single_key]
 
-            # Models
             models_raw = os.getenv(f'LLM_{ch_upper}_MODELS', '')
             models = [m.strip() for m in models_raw.split(',') if m.strip()]
-            # Auto-prefix: models without provider prefix in channels with base_url → openai/
             models = [
                 (f'openai/{m}' if '/' not in m and base_url else m)
                 for m in models
             ]
 
-            # Extra headers (JSON string, optional)
             extra_headers_raw = os.getenv(f'LLM_{ch_upper}_EXTRA_HEADERS', '').strip()
             extra_headers = None
             if extra_headers_raw:
@@ -891,33 +751,6 @@ class Config:
         return model_list
 
     @classmethod
-    def _parse_stock_email_groups(cls) -> List[Tuple[List[str], List[str]]]:
-        """
-        Parse STOCK_GROUP_N and EMAIL_GROUP_N from environment.
-        Returns [(stocks, emails), ...] ordered by group index.
-        """
-        groups: dict = {}
-        stock_re = re.compile(r'^STOCK_GROUP_(\d+)$', re.IGNORECASE)
-        email_re = re.compile(r'^EMAIL_GROUP_(\d+)$', re.IGNORECASE)
-        for key in os.environ:
-            m = stock_re.match(key)
-            if m:
-                idx = int(m.group(1))
-                val = os.environ[key].strip()
-                groups.setdefault(idx, {})['stocks'] = [c.strip() for c in val.split(',') if c.strip()]
-            m = email_re.match(key)
-            if m:
-                idx = int(m.group(1))
-                val = os.environ[key].strip()
-                groups.setdefault(idx, {})['emails'] = [e.strip() for e in val.split(',') if e.strip()]
-        result = []
-        for idx in sorted(groups.keys()):
-            g = groups[idx]
-            if 'stocks' in g and 'emails' in g and g['stocks'] and g['emails']:
-                result.append((g['stocks'], g['emails']))
-        return result
-
-    @classmethod
     def _parse_market_review_region(cls, value: str) -> str:
         """US-only mode: force MARKET_REVIEW_REGION to us."""
         import logging
@@ -962,7 +795,6 @@ class Config:
         env_path = Path(env_file) if env_file else (Path(__file__).parent.parent / '.env')
         stock_list_str = ''
         if env_path.exists():
-            # 直接从 .env 文件读取最新的配置
             env_values = dotenv_values(env_path)
             stock_list_str = (env_values.get('STOCK_LIST') or '').strip()
 
@@ -1059,12 +891,10 @@ class Config:
             ))
 
         # --- Notification channels ---
-        has_notification = bool(self.email_sender and self.email_password)
         if not has_notification:
             issues.append(ConfigIssue(
                 severity="warning",
                 message="未配置通知渠道，将不发送推送通知",
-                field="EMAIL_SENDER",
             ))
 
         # --- Deprecated field migration hints ---
@@ -1082,9 +912,6 @@ class Config:
         # Only warn when user explicitly set VISION_MODEL (or OPENAI_VISION_MODEL alias).
         # Skipped when vision_model is empty (Vision not intentionally configured).
         if self.vision_model:
-            # Maps provider prefix → the corresponding key list tracked by Config.
-            # vertex_ai shares gemini keys; other LiteLLM-native providers are not
-            # in this map (their keys come from env vars, which we cannot inspect here).
             _VISION_KEY_MAP = {
                 "gemini": self.gemini_api_keys,
                 "vertex_ai": self.gemini_api_keys,
@@ -1092,8 +919,6 @@ class Config:
                 "openai": self.openai_api_keys,
                 "deepseek": self.deepseek_api_keys,
             }
-            # Derive the primary model's provider prefix so that its key is also
-            # checked even when the provider is absent from VISION_PROVIDER_PRIORITY.
             _primary_prefix = (
                 self.vision_model.split("/")[0]
                 if "/" in self.vision_model
@@ -1104,10 +929,8 @@ class Config:
                 for p in self.vision_provider_priority.split(",")
                 if p.strip()
             ]
-            # Union: fallback providers + primary model's own provider
             _all_providers = {_primary_prefix} | set(_priority_providers)
 
-            # Align with get_api_keys_for_model: keys must be non-empty and len >= 8
             _has_any_key = any(
                 any(k and len(k) >= 8 for k in (_VISION_KEY_MAP.get(p) or []))
                 for p in _all_providers

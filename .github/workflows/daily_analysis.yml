@@ -71,6 +71,20 @@ jobs:
           EMAIL_RECEIVERS: ${{ vars.EMAIL_RECEIVERS || secrets.EMAIL_RECEIVERS }}
           EMAIL_SENDER_NAME: ${{ vars.EMAIL_SENDER_NAME || secrets.EMAIL_SENDER_NAME || 'US Stock Analyzer' }}
 
+          # Telegram
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+          # Google Sheets portfolio
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SHEET_TAB: ${{ vars.GOOGLE_SHEET_TAB || 'Portfolio' }}
+
+          # Tier configuration
+          TIER1_STOCKS: ${{ secrets.TIER1_STOCKS }}
+          TIER2_STOCKS: ${{ secrets.TIER2_STOCKS }}
+          MONTHLY_DEPOSIT_DATE: ${{ vars.MONTHLY_DEPOSIT_DATE || secrets.MONTHLY_DEPOSIT_DATE || '1' }}
+
           # US-only behavior
           STOCK_LIST: ${{ vars.STOCK_LIST || secrets.STOCK_LIST || 'AAPL,MSFT,NVDA' }}
           MARKET_REVIEW_REGION: "us"
