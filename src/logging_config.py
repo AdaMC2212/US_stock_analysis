@@ -153,3 +153,13 @@ def setup_logging(
     logging.info(f"日志系统初始化完成，日志目录: {rel_log_path}")
     logging.info(f"常规日志: {rel_log_file}")
     logging.info(f"调试日志: {rel_debug_log_file}")
+
+
+def shutdown_logging() -> None:
+    """Best-effort logging shutdown to avoid noisy teardown errors."""
+    try:
+        logging.disable(logging.CRITICAL)
+        logging.shutdown()
+    except Exception:
+        # Avoid raising during interpreter shutdown.
+        pass

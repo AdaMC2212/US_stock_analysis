@@ -79,6 +79,7 @@ Useful optional settings:
 - `MARKET_REVIEW_ENABLED`
 - `MERGE_EMAIL_NOTIFICATION`
 - `TRADING_DAY_CHECK_ENABLED`
+- `ANALYSIS_DELAY`
 - `TIMEZONE`
 - `SCHEDULE_TIME`
 - `POST_MARKET_DELAY`
@@ -91,6 +92,7 @@ Important defaults:
 - `SINGLE_STOCK_NOTIFY=false`
 - `TIMEZONE=Asia/Kuala_Lumpur`
 - `SCHEDULE_TIME=08:00`
+- `ANALYSIS_DELAY=0`
 - `NEWS_MAX_AGE_DAYS=7`
 - `HISTORICAL_LOOKBACK_DAYS=252`
 
@@ -138,7 +140,7 @@ The scheduled workflow is [daily_analysis.yml](.github/workflows/daily_analysis.
 
 It currently runs:
 
-- On weekdays at `22:30 UTC`
+- Tuesday-Saturday at `00:00 UTC` (08:00 MYT)
 - Manually through `workflow_dispatch`
 - In one of three modes: `full`, `market-only`, or `stocks-only`
 

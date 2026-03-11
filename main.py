@@ -48,7 +48,7 @@ from src.core.pipeline import StockAnalysisPipeline
 from src.core.market_review import run_market_review
 from src.webui_frontend import prepare_webui_frontend_assets
 from src.config import get_config, Config
-from src.logging_config import setup_logging
+from src.logging_config import setup_logging, shutdown_logging
 
 
 logger = logging.getLogger(__name__)
@@ -663,6 +663,8 @@ def main() -> int:
     except Exception as e:
         logger.exception(f"程序执行失败: {e}")
         return 1
+    finally:
+        shutdown_logging()
 
 
 if __name__ == "__main__":
