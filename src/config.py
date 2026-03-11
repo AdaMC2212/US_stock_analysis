@@ -163,6 +163,9 @@ class Config:
 
     report_summary_only: bool = False
 
+    # Delay between per-stock analysis steps (seconds).
+    analysis_delay: float = 0.0
+
 
     database_path: str = "./data/stock_analysis.db"
 
