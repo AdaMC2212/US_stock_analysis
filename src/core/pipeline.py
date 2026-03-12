@@ -974,8 +974,12 @@ class StockAnalysisPipeline:
                             report_content = self.notifier.generate_single_stock_report(result)
                             logger.info(f"[{code}] 使用精简报告格式")
                         
-                        subject = self.notifier.generate_email_subject([result])
-                        if self.notifier.send(report_content, email_stock_codes=[code], email_subject=subject):
+                        single_portfolio = {code.upper(): position} if position else {}
+                        if self.notifier.send(
+                            report_content,
+                            results=[result],
+                            portfolio=single_portfolio,
+                        ):
                             logger.info(f"[{code}] 单股推送成功")
                         else:
                             logger.warning(f"[{code}] 单股推送失败")
@@ -993,8 +997,7 @@ class StockAnalysisPipeline:
         self,
         stock_codes: Optional[List[str]] = None,
         dry_run: bool = False,
-        send_notification: bool = True,
-        merge_notification: bool = False
+        send_notification: bool = True
     ) -> List[AnalysisResult]:
         """
         运行完整的分析流程
@@ -1009,7 +1012,6 @@ class StockAnalysisPipeline:
             stock_codes: 股票代码列表（可选，默认使用配置中的自选股）
             dry_run: 是否仅获取数据不分析
             send_notification: 是否发送推送通知
-            merge_notification: 是否合并推送（跳过本次推送，由 main 层合并个股+大盘后统一发送，Issue #190）
 
         Returns:
             分析结果列表
@@ -1127,10 +1129,6 @@ class StockAnalysisPipeline:
                 # 单股推送模式：只保存汇总报告，不再重复推送
                 logger.info("单股推送模式：跳过汇总推送，仅保存报告到本地")
                 self._send_notifications(results, skip_push=True, portfolio=portfolio)
-            elif merge_notification:
-                # 合并模式（Issue #190）：仅保存，不推送，由 main 层合并个股+大盘后统一发送
-                logger.info("合并推送模式：跳过本次推送，将在个股+大盘复盘后统一发送")
-                self._send_notifications(results, skip_push=True, portfolio=portfolio)
             else:
                 self._send_notifications(results, portfolio=portfolio)
         
@@ -1165,12 +1163,10 @@ class StockAnalysisPipeline:
             if skip_push:
                 return
             
-            # Push once via email-only notifier.
+            # Push once via Telegram-only notifier.
             if self.notifier.is_available():
-                subject = self.notifier.generate_email_subject(results)
                 if self.notifier.send(
                     report,
-                    email_subject=subject,
                     results=results,
                     portfolio=portfolio or {},
                 ):

@@ -7,7 +7,6 @@
 提供各种通知发送服务
 """
 
-from .email_sender import EmailSender
 from .telegram_sender import TelegramSender
 
-__all__ = ["EmailSender", "TelegramSender"]
+__all__ = ["TelegramSender"]

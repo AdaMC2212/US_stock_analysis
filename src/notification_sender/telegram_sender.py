@@ -142,6 +142,37 @@ class TelegramSender:
             logger.error("Telegram send failed: %s", exc)
             return False
 
+    def send_text(self, text: str, max_chars: int = 3000) -> bool:
+        if text is None:
+            return False
+        content = text.strip()
+        if not content:
+            return False
+
+        lines = content.splitlines()
+        chunks: List[str] = []
+        current = ""
+        for line in lines:
+            candidate = f"{current}\n{line}" if current else line
+            if len(candidate) <= max_chars:
+                current = candidate
+                continue
+            if current:
+                chunks.append(current)
+                current = line
+                continue
+            # Single line exceeds max length; split hard.
+            for i in range(0, len(line), max_chars):
+                chunks.append(line[i:i + max_chars])
+            current = ""
+        if current:
+            chunks.append(current)
+
+        success = True
+        for chunk in chunks:
+            success = self._send(chunk) and success
+        return success
+
     def send_portfolio_snapshot(self, portfolio: Dict[str, Dict]) -> bool:
         if not portfolio:
             content = "📊 *持仓快照*\n\n暂无持仓数据"

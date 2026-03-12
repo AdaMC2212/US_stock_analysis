@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 SCHEMA_VERSION = "2026-02-09"
 
-# US/email profile excludes unsupported notification channels from schema exposure.
+# US/telegram profile excludes unsupported notification channels from schema exposure.
 _HIDDEN_PROFILE_KEYS = {
     "WECHAT_WEBHOOK_URL",
     "WECHAT_MSG_TYPE",
@@ -24,10 +24,6 @@ _HIDDEN_PROFILE_KEYS = {
     "FEISHU_VERIFICATION_TOKEN",
     "FEISHU_ENCRYPT_KEY",
     "FEISHU_STREAM_ENABLED",
-    "TELEGRAM_BOT_TOKEN",
-    "TELEGRAM_CHAT_ID",
-    "TELEGRAM_MESSAGE_THREAD_ID",
-    "TELEGRAM_WEBHOOK_SECRET",
     "PUSHPLUS_TOKEN",
     "PUSHPLUS_TOPIC",
     "PUSHOVER_USER_KEY",
@@ -777,51 +773,6 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "display_order": 17,
     },
     # ------------------------------------------------------------------
-    # Notification – Email
-    # ------------------------------------------------------------------
-    "EMAIL_SENDER": {
-        "title": "Email Sender",
-        "description": "Sender email address (SMTP host auto-detected).",
-        "category": "notification",
-        "data_type": "string",
-        "ui_control": "text",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": None,
-        "options": [],
-        "validation": {},
-        "display_order": 25,
-    },
-    "EMAIL_PASSWORD": {
-        "title": "Email Password",
-        "description": "Email password or app-specific authorization code.",
-        "category": "notification",
-        "data_type": "string",
-        "ui_control": "password",
-        "is_sensitive": True,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": None,
-        "options": [],
-        "validation": {},
-        "display_order": 26,
-    },
-    "EMAIL_RECEIVERS": {
-        "title": "Email Receivers",
-        "description": "Comma-separated recipient email addresses. Leave empty to send to yourself.",
-        "category": "notification",
-        "data_type": "array",
-        "ui_control": "textarea",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": None,
-        "options": [],
-        "validation": {"multi_value": True, "delimiter": ","},
-        "display_order": 27,
-    },
-    # ------------------------------------------------------------------
     # Notification – Discord
     # ------------------------------------------------------------------
     "DISCORD_WEBHOOK_URL": {
@@ -955,20 +906,6 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "options": ["simple", "full"],
         "validation": {"enum": ["simple", "full"]},
         "display_order": 55,
-    },
-    "MERGE_EMAIL_NOTIFICATION": {
-        "title": "Merge Email Notification",
-        "description": "Merge stock analysis and market review into a single email notification.",
-        "category": "notification",
-        "data_type": "boolean",
-        "ui_control": "switch",
-        "is_sensitive": False,
-        "is_required": False,
-        "is_editable": True,
-        "default_value": "false",
-        "options": [],
-        "validation": {},
-        "display_order": 56,
     },
     "SCHEDULE_TIME": {
         "title": "Schedule Time",
@@ -1370,7 +1307,6 @@ def _infer_category(key: str) -> str:
         "WECHAT",
         "FEISHU",
         "TELEGRAM",
-        "EMAIL",
         "PUSHOVER",
         "PUSHPLUS",
         "SERVERCHAN",
@@ -1408,7 +1344,7 @@ def _infer_data_type(key: str, value_hint: Optional[str]) -> str:
     except (TypeError, ValueError):
         pass
 
-    if key in {"STOCK_LIST", "EMAIL_RECEIVERS", "CUSTOM_WEBHOOK_URLS"}:
+    if key in {"STOCK_LIST", "CUSTOM_WEBHOOK_URLS"}:
         return "array"
     return "string"
 

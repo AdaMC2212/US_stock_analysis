@@ -1,22 +1,22 @@
 # US Stock Analyzer
 
-US stock analysis pipeline powered by Gemini, with daily report delivery by email.
+US stock analysis pipeline powered by Gemini, with daily report delivery by Telegram.
 
 This fork is intentionally streamlined. The supported path is:
 
 - US stocks and US market review only
 - Gemini as the LLM provider
-- Email as the notification channel
+- Telegram as the notification channel
 - Local runs or scheduled GitHub Actions runs
 
-It is designed for a simple workflow: define a US watchlist, fetch market data, enrich with recent news, generate AI analysis, and send a report by email.
+It is designed for a simple workflow: define a US watchlist, fetch market data, enrich with recent news, generate AI analysis, and send a report by Telegram.
 
 ## What It Does
 
 - Analyzes a configurable list of US tickers such as `AAPL`, `MSFT`, `NVDA`, `SPY`, and `QQQ`
 - Generates a US market review for major US indices
 - Uses Gemini to turn technical, fundamental, macro, and news context into a readable long-term investing report
-- Sends the final report by email
+- Sends the final report by Telegram
 - Skips non-trading days by default using US market calendar checks
 - Supports local execution and GitHub Actions scheduling
 
@@ -33,7 +33,7 @@ Runtime flow:
 5. Send the assembled context to Gemini through LiteLLM.
 6. Parse the model output into structured stock analysis results.
 7. Generate a stock report and optional US market review.
-8. Send the final report by email.
+8. Send the final report by Telegram.
 
 Key modules:
 
@@ -42,7 +42,7 @@ Key modules:
 - [src/analyzer.py](src/analyzer.py): Gemini-based stock analysis
 - [src/core/market_review.py](src/core/market_review.py): US market review flow
 - [src/market_analyzer.py](src/market_analyzer.py): market review generation
-- [src/notification.py](src/notification.py): email-only report delivery
+- [src/notification.py](src/notification.py): Telegram-only report delivery
 - [src/core/trading_calendar.py](src/core/trading_calendar.py): US trading-day checks
 
 ## Analysis Basis
@@ -66,9 +66,8 @@ Required for normal use:
 
 - `STOCK_LIST`
 - `GEMINI_API_KEY`
-- `EMAIL_SENDER`
-- `EMAIL_PASSWORD`
-- `EMAIL_RECEIVERS`
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
 
 Useful optional settings:
 
@@ -77,7 +76,6 @@ Useful optional settings:
 - `BRAVE_API_KEYS`
 - `BOCHA_API_KEYS`
 - `MARKET_REVIEW_ENABLED`
-- `MERGE_EMAIL_NOTIFICATION`
 - `TRADING_DAY_CHECK_ENABLED`
 - `ANALYSIS_DELAY`
 - `TIMEZONE`
@@ -88,7 +86,6 @@ Useful optional settings:
 Important defaults:
 
 - `MARKET_REVIEW_REGION=us`
-- `MERGE_EMAIL_NOTIFICATION=true`
 - `SINGLE_STOCK_NOTIFY=false`
 - `TIMEZONE=Asia/Kuala_Lumpur`
 - `SCHEDULE_TIME=08:00`
@@ -112,10 +109,8 @@ Edit `.env` and set at least:
 ```env
 STOCK_LIST=AAPL,MSFT,NVDA,SPY,QQQ
 GEMINI_API_KEY=your_key
-EMAIL_SENDER=your_email@example.com
-EMAIL_PASSWORD=your_smtp_app_password
-EMAIL_RECEIVERS=you@example.com
-EMAIL_SENDER_NAME=US Stock Analyzer
+TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
+TELEGRAM_CHAT_ID=your_chat_id
 ```
 
 Run:
@@ -147,10 +142,8 @@ It currently runs:
 Set these repository secrets:
 
 - `GEMINI_API_KEY`
-- `EMAIL_SENDER`
-- `EMAIL_PASSWORD`
-- `EMAIL_RECEIVERS`
-- `EMAIL_SENDER_NAME`
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
 - `STOCK_LIST`
 - `TAVILY_API_KEYS` if you want news enrichment
 
@@ -168,11 +161,11 @@ The project generates local artifacts under:
 - `logs/`
 - `data/`
 
-Depending on your settings, the email can contain:
+Depending on your settings, Telegram can contain:
 
 - Stock analysis only
 - US market review only
-- A merged stock + market review email
+- Stock analysis + market review as separate pushes
 
 ## Project Structure
 
@@ -198,7 +191,7 @@ Out of scope for this version:
 
 - China A-share analysis
 - Hong Kong stock analysis
-- WeChat, Feishu, Telegram, Discord, PushPlus, Pushover, and other non-email delivery channels
+- Email delivery and other non-Telegram channels (WeChat, Feishu, Discord, PushPlus, Pushover, etc.)
 - Multi-market scheduling or region switching beyond `us`
 
 Some inherited files and historical docs may still reference upstream features that are no longer part of the supported flow. Use this README, [.env.example](.env.example), and [daily_analysis.yml](.github/workflows/daily_analysis.yml) as the source of truth for current usage.

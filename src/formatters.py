@@ -101,10 +101,10 @@ def _slice_at_effective_len(s: str, effective_len: int, special_char_len: int = 
 
 def markdown_to_html_document(markdown_text: str) -> str:
     """
-    Convert Markdown to a complete HTML document (for email, md2img, etc.).
+    Convert Markdown to a complete HTML document (for md2img, etc.).
 
     Uses markdown2 with table and code block support, wraps with inline CSS
-    for compact, readable layout. Reused by notification email and md2img.
+    for compact, readable layout. Reused by md2img.
 
     Args:
         markdown_text: Raw Markdown content.

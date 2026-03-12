@@ -153,13 +153,6 @@ class Config:
     telegram_message_thread_id: Optional[str] = None  # Topic ID (Message Thread ID) for groups
     telegram_webhook_secret: Optional[str] = None  # Webhook secret
 
-    # Email notification settings.
-    email_sender: Optional[str] = None
-    email_password: Optional[str] = None
-    email_receivers: List[str] = field(default_factory=list)
-    email_sender_name: str = ""
-    merge_email_notification: bool = True
-
     markdown_to_image_channels: List[str] = field(default_factory=list)
     markdown_to_image_max_chars: int = 15000
     md2img_engine: str = "wkhtmltoimage"  # wkhtmltoimage | markdown-to-file (Issue #455, better emoji support)
@@ -512,17 +505,6 @@ class Config:
             telegram_bot_token=os.getenv('TELEGRAM_BOT_TOKEN'),
             telegram_chat_id=os.getenv('TELEGRAM_CHAT_ID'),
             telegram_message_thread_id=os.getenv('TELEGRAM_MESSAGE_THREAD_ID'),
-            email_sender=os.getenv('EMAIL_SENDER'),
-            email_password=os.getenv('EMAIL_PASSWORD'),
-            email_receivers=[
-                e.strip()
-                for e in os.getenv('EMAIL_RECEIVERS', '').split(',')
-                if e.strip()
-            ],
-            email_sender_name=os.getenv('EMAIL_SENDER_NAME', ''),
-            merge_email_notification=os.getenv(
-                'MERGE_EMAIL_NOTIFICATION', 'true'
-            ).lower() == 'true',
             single_stock_notify=os.getenv('SINGLE_STOCK_NOTIFY', 'false').lower() == 'true',
             report_type=os.getenv('REPORT_TYPE', 'simple').lower(),
             report_summary_only=os.getenv('REPORT_SUMMARY_ONLY', 'false').lower() == 'true',
@@ -913,14 +895,11 @@ class Config:
 
         # --- Notification channels ---
         telegram_ok = bool(self.telegram_bot_token and self.telegram_chat_id)
-        email_sender = (getattr(self, "email_sender", None) or os.getenv("EMAIL_SENDER") or "").strip()
-        email_password = (getattr(self, "email_password", None) or os.getenv("EMAIL_PASSWORD") or "").strip()
-        email_ok = bool(email_sender and email_password)
-        has_notification = telegram_ok or email_ok
-        if not has_notification:
+        if not telegram_ok:
             issues.append(ConfigIssue(
                 severity="warning",
-                message="未配置通知渠道，将不发送推送通知",
+                message="未配置 Telegram 通知，将不发送推送通知",
+                field="TELEGRAM_BOT_TOKEN",
             ))
 
         # --- Deprecated field migration hints ---

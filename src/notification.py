@@ -9,7 +9,6 @@ Responsibilities:
 2. Support Markdown output.
 3. Notification channels:
    - Telegram Bot
-   - Email (SMTP)
 """
 import logging
 from datetime import datetime
@@ -20,14 +19,13 @@ from src.config import get_config
 from src.analyzer import AnalysisResult
 from bot.models import BotMessage
 from src.utils.data_processing import normalize_model_used
-from src.notification_sender import EmailSender, TelegramSender
+from src.notification_sender import TelegramSender
 
 logger = logging.getLogger(__name__)
 
 
 class NotificationChannel(Enum):
     """通知渠道类型"""
-    EMAIL = "email"
     TELEGRAM = "telegram"
 
 
@@ -42,15 +40,12 @@ class ChannelDetector:
     def get_channel_name(channel: NotificationChannel) -> str:
         """获取渠道中文名称"""
         names = {
-            NotificationChannel.EMAIL: "邮件",
             NotificationChannel.TELEGRAM: "Telegram",
         }
         return names.get(channel, "未知渠道")
 
 
-class NotificationService(
-    EmailSender,
-):
+class NotificationService:
     """
     通知服务
     
@@ -61,7 +56,6 @@ class NotificationService(
     
     支持的渠道：
     - Telegram Bot
-    - 邮件 SMTP
     
     注意：所有已配置的渠道都会收到推送
     """
@@ -76,19 +70,10 @@ class NotificationService(
         self._config = config
         self._source_message = source_message
 
-        # Markdown 转图片（Issue #289）
-        self._markdown_to_image_channels = set(
-            getattr(config, 'markdown_to_image_channels', []) or []
-        )
-        self._markdown_to_image_max_chars = getattr(
-            config, 'markdown_to_image_max_chars', 15000
-        )
-
         # 仅分析结果摘要（Issue #262）：true 时只推送汇总，不含个股详情
         self._report_summary_only = getattr(config, 'report_summary_only', False)
 
         # Initialize channels.
-        EmailSender.__init__(self, config)
         self._telegram: Optional[TelegramSender] = None
         if config.telegram_bot_token and config.telegram_chat_id:
             self._telegram = TelegramSender(config.telegram_bot_token, config.telegram_chat_id)
@@ -118,8 +103,6 @@ class NotificationService(
             已配置的渠道列表
         """
         channels: List[NotificationChannel] = []
-        if self._is_email_configured():
-            channels.append(NotificationChannel.EMAIL)
         if self._telegram:
             channels.append(NotificationChannel.TELEGRAM)
         return channels
@@ -422,31 +405,6 @@ class NotificationService(
         else:
             return ('观望', '⚪', '观望')
 
-    def generate_email_subject(self, results: List[AnalysisResult], report_date: Optional[str] = None) -> str:
-        """Build a compact subject line highlighting the top actionable names."""
-        if report_date is None:
-            report_date = datetime.now().strftime('%Y-%m-%d')
-        if not results:
-            return f"美股分析报告 - {report_date}"
-
-        actionable = [r for r in results if getattr(r, 'operation_advice', '') in ('Accumulate', 'Trim', 'Exit', '买入', '加仓', '减仓', '卖出')]
-        ranked = sorted(actionable or results, key=lambda x: x.sentiment_score, reverse=True)[:3]
-        parts = []
-        advice_map = {
-            "Accumulate": "加仓",
-            "Hold": "持有",
-            "Watch": "观望",
-            "Trim": "减仓",
-            "Exit": "卖出",
-        }
-        symbol_map = {'Accumulate': '⬆️', 'Hold': '⚪', 'Watch': '👀', 'Trim': '↘️', 'Exit': '⛔'}
-        legacy_map = {'买入': '⬆️', '加仓': '⬆️', '持有': '⚪', '观望': '👀', '减仓': '↘️', '卖出': '⛔'}
-        for result in ranked:
-            advice = result.operation_advice
-            marker = symbol_map.get(advice, legacy_map.get(advice, '⚪'))
-            parts.append(f"{result.code} {marker} {advice_map.get(advice, advice)}")
-        return f"美股分析报告 - {' | '.join(parts)} | {report_date}"
-    
     def generate_dashboard_report(
         self,
         results: List[AnalysisResult],
@@ -853,25 +811,9 @@ class NotificationService(
 
         lines.append("")
 
-    def _should_use_image_for_channel(
-        self, channel: NotificationChannel, image_bytes: Optional[bytes]
-    ) -> bool:
-        """
-        Decide whether to send as image for the given channel (Issue #289).
-
-        Fallback rules (send as Markdown text instead of image):
-        - image_bytes is None: conversion failed / imgkit not installed / content over max_chars
-        """
-        if channel.value not in self._markdown_to_image_channels or image_bytes is None:
-            return False
-        return True
-
     def send(
         self,
         content: str,
-        email_stock_codes: Optional[List[str]] = None,
-        email_send_to_all: bool = False,
-        email_subject: Optional[str] = None,
         results: Optional[List[AnalysisResult]] = None,
         portfolio: Optional[Dict] = None,
     ) -> bool:
@@ -880,16 +822,8 @@ class NotificationService(
 
         遍历所有已配置的渠道，逐一发送消息
 
-        Fallback rules (Markdown-to-image, Issue #289):
-        - When image_bytes is None (conversion failed / imgkit not installed /
-          content over max_chars): all channels configured for image will send
-          as Markdown text instead.
-
         Args:
             content: 消息内容（Markdown 格式）
-            email_stock_codes: 股票代码列表（可选，用于邮件渠道路由到对应分组邮箱，Issue #268）
-            email_send_to_all: 邮件是否发往所有配置邮箱（用于大盘复盘等无股票归属的内容）
-            email_subject: Optional custom email subject
 
         Returns:
             是否至少有一个渠道发送成功
@@ -898,58 +832,14 @@ class NotificationService(
             logger.warning("No notification channels available; skipping.")
             return False
 
-        # Markdown to image (Issue #289): convert once if any channel needs it.
-        # Per-channel decision via _should_use_image_for_channel (see send() docstring for fallback rules).
-        image_bytes = None
-        channels_needing_image = {
-            ch for ch in self._available_channels
-            if ch.value in self._markdown_to_image_channels
-        }
-        if channels_needing_image:
-            from src.md2img import markdown_to_image
-            image_bytes = markdown_to_image(
-                content, max_chars=self._markdown_to_image_max_chars
-            )
-            if image_bytes:
-                logger.info("Markdown converted to image for channels: %s", [ch.value for ch in channels_needing_image])
-            elif channels_needing_image:
-                try:
-                    from src.config import get_config
-                    engine = getattr(get_config(), "md2img_engine", "wkhtmltoimage")
-                except Exception:
-                    engine = "wkhtmltoimage"
-                hint = (
-                    "npm i -g markdown-to-file" if engine == "markdown-to-file"
-                    else "wkhtmltopdf (apt install wkhtmltopdf / brew install wkhtmltopdf)"
-                )
-                logger.warning(
-                    "Markdown-to-image failed; fallback to Markdown text. Check MARKDOWN_TO_IMAGE_CHANNELS and %s",
-                    hint,
-                )
-        email_result = False
-        if self._is_email_configured():
-            receivers = None
-            if email_send_to_all and self._stock_email_groups:
-                receivers = self.get_all_email_receivers()
-            elif email_stock_codes and self._stock_email_groups:
-                receivers = self.get_receivers_for_stocks(email_stock_codes)
-
-            use_image = self._should_use_image_for_channel(NotificationChannel.EMAIL, image_bytes)
-            if use_image:
-                email_result = self._send_email_with_inline_image(image_bytes, receivers=receivers, subject=email_subject)
-            else:
-                email_result = self.send_to_email(content, subject=email_subject, receivers=receivers)
-
-            logger.info("Email notification result: %s", "success" if email_result else "failed")
-
         telegram_result = False
         if self._telegram:
-            if results is None or portfolio is None:
-                logger.warning("Telegram notification skipped due to missing results or portfolio.")
-            else:
+            if results is not None and portfolio is not None:
                 telegram_result = self.send_via_telegram(results, portfolio)
+            else:
+                telegram_result = self._telegram.send_text(content)
 
-        return email_result or telegram_result
+        return telegram_result
 
     def send_via_telegram(self, results: List[AnalysisResult], portfolio: Dict) -> bool:
         if not self._telegram:

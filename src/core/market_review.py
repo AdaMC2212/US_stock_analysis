@@ -29,7 +29,6 @@ def run_market_review(
     analyzer: Optional[GeminiAnalyzer] = None,
     search_service: Optional[SearchService] = None,
     send_notification: bool = True,
-    merge_notification: bool = False,
     override_region: Optional[str] = None,
 ) -> Optional[str]:
     """
@@ -40,7 +39,6 @@ def run_market_review(
         analyzer: AI分析器（可选）
         search_service: 搜索服务（可选）
         send_notification: 是否发送通知
-        merge_notification: 是否合并推送（跳过本次推送，由 main 层合并个股+大盘后统一发送，Issue #190）
         override_region: 覆盖 config 的 market_review_region（Issue #373 交易日过滤后有效子集）
 
     Returns:
@@ -74,17 +72,13 @@ def run_market_review(
             )
             logger.info(f"大盘复盘报告已保存: {filepath}")
             
-            # 推送通知（合并模式下跳过，由 main 层统一发送）
-            if merge_notification and send_notification:
-                logger.info("合并推送模式：跳过大盘复盘单独推送，将在个股+大盘复盘后统一发送")
-            elif send_notification and notifier.is_available():
+            # 推送通知
+            if send_notification and notifier.is_available():
                 # 添加标题
                 report_content = f"🎯 大盘复盘\n\n{review_report}"
 
                 success = notifier.send(
                     report_content,
-                    email_send_to_all=True,
-                    email_subject=f"US Market Review - {datetime.now().strftime('%Y-%m-%d')}",
                 )
                 if success:
                     logger.info("大盘复盘推送成功")

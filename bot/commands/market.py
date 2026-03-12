@@ -112,7 +112,7 @@ class MarketCommand(BotCommand):
             if review_report:
                 # 推送结果
                 report_content = f"🎯 **大盘复盘**\n\n{review_report}"
-                notifier.send(report_content, email_send_to_all=True)
+                notifier.send(report_content)
                 logger.info("[MarketCommand] 大盘复盘完成并已推送")
             else:
                 logger.warning("[MarketCommand] 大盘复盘返回空结果")

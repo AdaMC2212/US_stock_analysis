@@ -301,14 +301,6 @@ def run_full_analysis(
 
         _apply_post_market_delay(config, args)
 
-        # Issue #190: 个股与大盘复盘合并推送
-        merge_notification = (
-            getattr(config, 'merge_email_notification', False)
-            and config.market_review_enabled
-            and not getattr(args, 'no_market_review', False)
-            and not config.single_stock_notify
-        )
-
         # 创建调度器
         save_context_snapshot = None
         if getattr(args, 'no_context_snapshot', False):
@@ -326,8 +318,7 @@ def run_full_analysis(
         results = pipeline.run(
             stock_codes=stock_codes,
             dry_run=args.dry_run,
-            send_notification=not args.no_notify,
-            merge_notification=merge_notification
+            send_notification=not args.no_notify
         )
 
         # Issue #128: 分析间隔 - 在个股分析和大盘分析之间添加延迟
@@ -353,35 +344,11 @@ def run_full_analysis(
                 analyzer=pipeline.analyzer,
                 search_service=pipeline.search_service,
                 send_notification=not args.no_notify,
-                merge_notification=merge_notification,
                 override_region=effective_region,
             )
             # 如果有结果，赋值给 market_report 用于后续飞书文档生成
             if review_result:
                 market_report = review_result
-
-        # Issue #190: 合并推送（个股+大盘复盘）
-        if merge_notification and (results or market_report) and not args.no_notify:
-            parts = []
-            if market_report:
-                parts.append(f"# 📈 大盘复盘\n\n{market_report}")
-            if results:
-                dashboard_content = pipeline.notifier.generate_dashboard_report(results)
-                parts.append(f"# 🚀 个股决策仪表盘\n\n{dashboard_content}")
-            if parts:
-                combined_content = "\n\n---\n\n".join(parts)
-                if pipeline.notifier.is_available():
-                    subject = pipeline.notifier.generate_email_subject(results) if results else (
-                        f"US Market Review - {datetime.now().strftime('%Y-%m-%d')}"
-                    )
-                    if pipeline.notifier.send(
-                        combined_content,
-                        email_send_to_all=True,
-                        email_subject=subject,
-                    ):
-                        logger.info("已合并推送（个股+大盘复盘）")
-                    else:
-                        logger.warning("合并推送失败")
 
         # 输出摘要
         if results:
@@ -454,7 +421,7 @@ def _is_truthy_env(var_name: str, default: str = "true") -> bool:
 def start_bot_stream_clients(config: Config) -> None:
     """Start bot stream clients when enabled in config."""
     _ = config
-    logger.info("[Main] Bot stream clients disabled in US/email-only mode.")
+    logger.info("[Main] Bot stream clients disabled in US/telegram-only mode.")
 
 
 def main() -> int:
