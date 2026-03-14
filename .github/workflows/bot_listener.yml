@@ -46,4 +46,4 @@ jobs:
           BOT_LISTENER_POLL_INTERVAL: "5"
           CONCENTRATION_WARN_THRESHOLD: "60"
           LOG_LEVEL: INFO
-        run: python bot_runner.py
+        run: python -c "from src.bot.telegram_listener import _poll_loop; _poll_loop()"

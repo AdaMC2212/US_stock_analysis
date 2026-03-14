@@ -31,7 +31,7 @@ from src.enums import ReportType
 from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult
 from src.core.trading_calendar import get_market_reference_date
 from src.core.sector_map import get_concentration_warning
-from bot.models import BotMessage
+from src.models.bot_message import BotMessage
 
 
 logger = logging.getLogger(__name__)

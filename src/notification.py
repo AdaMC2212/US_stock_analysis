@@ -17,7 +17,7 @@ from enum import Enum
 
 from src.config import get_config
 from src.analyzer import AnalysisResult
-from bot.models import BotMessage
+from src.models.bot_message import BotMessage
 from src.utils.data_processing import normalize_model_used
 from src.notification_sender import TelegramSender
 from src.core.budget_tracker import get_budget_tracker, init_budget_tracker
