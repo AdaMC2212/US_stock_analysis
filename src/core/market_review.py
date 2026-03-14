@@ -20,6 +20,7 @@ from src.notification import NotificationService
 from src.market_analyzer import MarketAnalyzer
 from src.search_service import SearchService
 from src.analyzer import GeminiAnalyzer
+from src.portfolio.google_sheets_reader import load_portfolio_from_config
 
 
 logger = logging.getLogger(__name__)
@@ -94,12 +95,19 @@ def run_market_review(
             if send_notification and notifier.is_available():
                 # 添加标题
                 report_content = f"🎯 大盘复盘\n\n{review_report}"
-
-                success = notifier.send(
-                    report_content,
-                )
+                if getattr(notifier, "_telegram", None):
+                    success = notifier._telegram.send_market_review(report_content)
+                else:
+                    success = notifier.send(report_content)
                 if success:
                     logger.info("大盘复盘推送成功")
+                    if portfolio_impact_enabled:
+                        try:
+                            portfolio = load_portfolio_from_config(config)
+                            if portfolio and getattr(notifier, "_telegram", None):
+                                notifier._telegram.send_portfolio_snapshot(portfolio)
+                        except Exception as exc:
+                            logger.warning("Failed to send portfolio snapshot: %s", exc)
                 else:
                     logger.warning("大盘复盘推送失败")
             elif not send_notification:

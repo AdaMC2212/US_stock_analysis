@@ -1,3 +1,4 @@
+import html
 import logging
 import re
 from typing import Dict, List, Optional
@@ -6,7 +7,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-_MARKDOWN_V2_SPECIALS = r"_*[]()~`>#+-=|{}.!"
+_MARKDOWN_V2_SPECIALS = r"[]()~`>#+-=|{}.!"
 
 
 def _escape_markdown_v2(text: str) -> str:
@@ -14,6 +15,44 @@ def _escape_markdown_v2(text: str) -> str:
         return ""
     escaped = text.replace("\\", "\\\\")
     return re.sub(rf"([{re.escape(_MARKDOWN_V2_SPECIALS)}])", r"\\\1", escaped)
+
+
+def _markdown_to_html(text: str) -> str:
+    if text is None:
+        return ""
+    lines = text.splitlines()
+    converted: List[str] = []
+    for line in lines:
+        raw = line.strip()
+        if not raw:
+            converted.append("")
+            continue
+        if raw.startswith("### "):
+            content = raw[4:].strip()
+            escaped = html.escape(content)
+            escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
+            escaped = re.sub(r"\*(.+?)\*", r"<i>\1</i>", escaped)
+            converted.append(f"<b>{escaped}</b>")
+            continue
+        if raw.startswith("## "):
+            content = raw[3:].strip()
+            escaped = html.escape(content)
+            escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
+            escaped = re.sub(r"\*(.+?)\*", r"<i>\1</i>", escaped)
+            converted.append(f"<b>{escaped}</b>")
+            continue
+        if raw.startswith("- "):
+            content = raw[2:].strip()
+            escaped = html.escape(content)
+            escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
+            escaped = re.sub(r"\*(.+?)\*", r"<i>\1</i>", escaped)
+            converted.append(f"• {escaped}")
+            continue
+        escaped = html.escape(raw)
+        escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
+        escaped = re.sub(r"\*(.+?)\*", r"<i>\1</i>", escaped)
+        converted.append(escaped)
+    return "\n".join(converted)
 
 
 def _format_price(value: Optional[float]) -> str:
@@ -126,12 +165,13 @@ class TelegramSender:
         self._chat_id = chat_id
         self._base_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
 
-    def _send(self, text: str) -> bool:
+    def _send(self, text: str, parse_mode: str = "MarkdownV2", escape: bool = True) -> bool:
         try:
+            payload_text = _escape_markdown_v2(text) if escape else (text or "")
             payload = {
                 "chat_id": self._chat_id,
-                "text": _escape_markdown_v2(text),
-                "parse_mode": "MarkdownV2",
+                "text": payload_text,
+                "parse_mode": parse_mode,
             }
             response = requests.post(self._base_url, json=payload, timeout=10)
             if response.status_code == 200:
@@ -189,6 +229,15 @@ class TelegramSender:
             return False
         return self._send(message)
 
+    def send_market_review(self, review_message: str) -> bool:
+        if review_message is None:
+            return False
+        message = review_message.strip()
+        if not message:
+            return False
+        html_message = _markdown_to_html(message)
+        return self._send(html_message, parse_mode="HTML", escape=False)
+
     def send_portfolio_snapshot(self, portfolio: Dict[str, Dict]) -> bool:
         if not portfolio:
             content = "📊 *持仓快照*\n\n暂无持仓数据"
@@ -216,28 +265,81 @@ class TelegramSender:
             total_pnl_pct = (total_pnl / total_cost) * 100
         total_pnl_pct_text = _format_pct(total_pnl_pct, with_sign=True) if total_pnl_pct is not None else "暂无"
 
-        lines = [
-            "📊 *持仓快照*",
-            "",
-            f"💼 总市值: {total_value_text} | 总盈亏: {total_pnl_text} ({total_pnl_pct_text})",
-            "",
-        ]
-
-        def sort_key(item: Dict) -> float:
-            value = item.get("allocation_pct")
+        def _fetch_today_change_pct(ticker: str) -> Optional[float]:
             try:
-                return float(value) if value is not None else 0.0
-            except (TypeError, ValueError):
-                return 0.0
+                import yfinance as yf
+            except Exception:
+                return None
+            try:
+                yf_ticker = yf.Ticker(ticker)
+                fast = getattr(yf_ticker, "fast_info", {}) or {}
+                last_price = fast.get("last_price")
+                prev_close = fast.get("previous_close")
+                if last_price and prev_close:
+                    return (float(last_price) - float(prev_close)) / float(prev_close) * 100
+                hist = yf_ticker.history(period="2d")
+                if hist is not None and len(hist) >= 2:
+                    prev = float(hist["Close"].iloc[-2])
+                    last = float(hist["Close"].iloc[-1])
+                    if prev:
+                        return (last - prev) / prev * 100
+            except Exception:
+                return None
+            return None
 
-        for ticker, item in sorted(portfolio.items(), key=lambda kv: sort_key(kv[1]), reverse=True):
-            alloc = _format_allocation(item.get("allocation_pct"))
-            avg_price = _format_price(item.get("avg_buy_price"))
-            current_price = _format_price(item.get("current_price"))
-            pnl_pct = item.get("pnl_pct")
-            pnl_pct_text = _format_pct(pnl_pct, with_sign=True)
-            emoji = _pick_pnl_emoji(pnl_pct)
-            lines.append(f"{ticker}  {alloc} | 均价{avg_price}  | 现价{current_price}  | {pnl_pct_text} {emoji}")
+        impacts: List[Dict[str, float]] = []
+        total_today_value = 0.0
+        weighted_change_sum = 0.0
+        for ticker, item in portfolio.items():
+            total_value = item.get("total_value")
+            if total_value is None:
+                continue
+            change_pct = _fetch_today_change_pct(ticker)
+            if change_pct is None:
+                continue
+            total_value = float(total_value)
+            today_impact = total_value * (change_pct / 100.0)
+            impacts.append({
+                "ticker": ticker,
+                "change_pct": change_pct,
+                "impact": today_impact,
+            })
+            total_today_value += total_value
+            weighted_change_sum += total_value * change_pct
+
+        lines = ["📊 *Portfolio Snapshot*", ""]
+        if impacts:
+            today_change_pct = weighted_change_sum / total_today_value if total_today_value > 0 else 0.0
+            lines.append(
+                f"💼 总市值: {total_value_text} | 总盈亏: {total_pnl_text} ({total_pnl_pct_text}) | "
+                f"今日变动: {today_change_pct:+.1f}%"
+            )
+            lines.append("")
+
+            gainers = sorted([i for i in impacts if i["impact"] > 0], key=lambda x: x["impact"], reverse=True)[:2]
+            losers = sorted([i for i in impacts if i["impact"] < 0], key=lambda x: x["impact"])[:2]
+
+            if gainers:
+                lines.append("📈 今日最大贡献:")
+                for item in gainers:
+                    impact_text = _format_money_signed(item["impact"])
+                    lines.append(
+                        f"- {item['ticker']} {item['change_pct']:+.1f}% → {impact_text} today"
+                    )
+
+            if losers:
+                if gainers:
+                    lines.append("")
+                lines.append("📉 今日最大拖累:")
+                for item in losers:
+                    impact_text = _format_money_signed(item["impact"])
+                    lines.append(
+                        f"- {item['ticker']} {item['change_pct']:+.1f}% → {impact_text} today"
+                    )
+        else:
+            lines.append(
+                f"💼 总市值: {total_value_text} | 总盈亏: {total_pnl_text} ({total_pnl_pct_text}) (今日行情暂无)"
+            )
 
         return self._send("\n".join(lines))
 

@@ -425,244 +425,78 @@ class MarketAnalyzer:
 
     def _build_review_prompt(self, overview: MarketOverview, news: List) -> str:
         """构建复盘报告 Prompt"""
-        # 指数行情信息（简洁格式，不用emoji）
-        indices_text = ""
+        indices_lines = []
         for idx in overview.indices:
-            direction = "↑" if idx.change_pct > 0 else "↓" if idx.change_pct < 0 else "-"
-            indices_text += f"- {idx.name}: {idx.current:.2f} ({direction}{abs(idx.change_pct):.2f}%)\n"
-        
-        # 板块信息
-        top_sectors_text = ", ".join([f"{s['name']}({s['change_pct']:+.2f}%)" for s in overview.top_sectors[:3]])
-        bottom_sectors_text = ", ".join([f"{s['name']}({s['change_pct']:+.2f}%)" for s in overview.bottom_sectors[:3]])
-        
-        # 新闻信息 - 支持 SearchResult 对象或字典
-        news_text = ""
-        for i, n in enumerate(news[:6], 1):
-            # 兼容 SearchResult 对象和字典
-            if hasattr(n, 'title'):
-                title = n.title[:50] if n.title else ''
-                snippet = n.snippet[:100] if n.snippet else ''
+            indices_lines.append(f"- {idx.name} {idx.current:.2f} ({idx.change_pct:+.2f}%)")
+
+        news_lines = []
+        for n in news[:8]:
+            if hasattr(n, "title"):
+                title = n.title[:60] if n.title else ""
+                snippet = n.snippet[:120] if n.snippet else ""
             else:
-                title = n.get('title', '')[:50]
-                snippet = n.get('snippet', '')[:100]
-            news_text += f"{i}. {title}\n   {snippet}\n"
-        macro_text = ""
+                title = n.get("title", "")[:60]
+                snippet = n.get("snippet", "")[:120]
+            if title:
+                news_lines.append(f"- {title} {snippet}".strip())
+
+        top_sectors = ", ".join([f"{s['name']}({s['change_pct']:+.2f}%)" for s in overview.top_sectors[:5]])
+        bottom_sectors = ", ".join([f"{s['name']}({s['change_pct']:+.2f}%)" for s in overview.bottom_sectors[:5]])
+
+        macro_lines = []
         if overview.macro_indicators:
             for item in overview.macro_indicators.values():
                 change_pct = item.get("change_pct")
                 suffix = f" ({change_pct:+.2f}%)" if change_pct is not None else ""
-                macro_text += f"- {item.get('name', 'N/A')}: {item.get('value', 'N/A')}{suffix}\n"
-        
-        # 按 region 组装市场概况与板块区块（美股无涨跌家数、板块数据）
-        stats_block = ""
-        sector_block = ""
-        portfolio_block = ""
-        if self.portfolio_impact_enabled and self.portfolio_stock_list:
-            portfolio_block = f"""
+                macro_lines.append(f"- {item.get('name', 'N/A')}: {item.get('value', 'N/A')}{suffix}")
 
----
-
-### Portfolio Impact Analysis
-
-The user holds the following stocks: {self.portfolio_stock_list}
-
-After your market commentary, add a final section titled 
-"## 🎯 Your Portfolio Impact"
-
-For each stock in the list, write exactly one sentence explaining 
-how tonight's specific market events affect that position.
-
-Rules:
-- Be specific to what actually happened tonight, not generic
-- If a stock was directly affected (sector rotation, earnings, 
-  macro sensitivity) say exactly how
-- If a stock was largely unaffected, say so briefly
-- Use plain English, no jargon
-- Format as a bullet point per stock
-
-Example output format:
-## 🎯 Your Portfolio Impact
-- NVDA: Tech selloff hit semiconductors hard tonight, NVDA likely opens lower ? watch $108 support level
-- AAPL: Consumer defensives held up, minimal impact expected
-- SPY: Broad market down 0.8%, your SPY position absorbs this proportionally ? no action needed
-- MSFT: Cloud sector was flat, MSFT unaffected by tonight's moves
-- QQQ: Nasdaq dropped 1.2% on rate fears, QQQ directly impacted
-"""
-
-        if self.region == "us":
-            if self.profile.has_market_stats:
-                stats_block = f"""## Market Overview
-- Up: {overview.up_count} | Down: {overview.down_count} | Flat: {overview.flat_count}
-- Limit up: {overview.limit_up_count} | Limit down: {overview.limit_down_count}
-- Total volume (CNY bn): {overview.total_amount:.0f}"""
-            else:
-                stats_block = "## Market Overview\n(US market has no equivalent advance/decline stats.)"
-
-            if self.profile.has_sector_rankings:
-                sector_block = f"""## Sector Performance
-Leading: {top_sectors_text if top_sectors_text else "N/A"}
-Lagging: {bottom_sectors_text if bottom_sectors_text else "N/A"}"""
-            else:
-                sector_block = "## Sector Performance\n(US sector data not available.)"
-        else:
-            if self.profile.has_market_stats:
-                stats_block = f"""## 市场概况
-- 上涨: {overview.up_count} 家 | 下跌: {overview.down_count} 家 | 平盘: {overview.flat_count} 家
-- 涨停: {overview.limit_up_count} 家 | 跌停: {overview.limit_down_count} 家
-- 两市成交额: {overview.total_amount:.0f} 亿元"""
-            else:
-                stats_block = "## 市场概况\n（美股暂无涨跌家数等统计）"
-
-            if self.profile.has_sector_rankings:
-                sector_block = f"""## 板块表现
-领涨: {top_sectors_text if top_sectors_text else "暂无数据"}
-领跌: {bottom_sectors_text if bottom_sectors_text else "暂无数据"}"""
-            else:
-                sector_block = "## 板块表现\n（美股暂无板块涨跌数据）"
-
-        data_no_indices_hint = (
-            "注意：由于行情数据获取失败，请主要根据【市场新闻】进行定性分析和总结，不要编造具体的指数点位。"
-            if not indices_text
-            else ""
+        indices_block = "\n".join(indices_lines) if indices_lines else "(暂无指数数据)"
+        news_block = "\n".join(news_lines) if news_lines else "(暂无显著新闻)"
+        macro_block = "\n".join(macro_lines) if macro_lines else "(暂无宏观指标)"
+        sector_hint = (
+            f"领涨: {top_sectors}" if top_sectors else "领涨: 暂无"
         )
-        indices_placeholder = indices_text if indices_text else ("No index data (API error)" if self.region == "us" else "暂无指数数据（接口异常）")
-        news_placeholder = news_text if news_text else ("No relevant news" if self.region == "us" else "暂无相关新闻")
+        sector_hint += "\n"
+        sector_hint += (
+            f"领跌: {bottom_sectors}" if bottom_sectors else "领跌: 暂无"
+        )
 
-        # 美股场景使用英文提示语，便于生成更符合美股语境的报告
-        if self.region == "us":
-            data_no_indices_hint_en = (
-                "Note: Market data fetch failed. Rely mainly on [Market News] for qualitative analysis. Do not invent index levels."
-                if not indices_text
-                else ""
-            )
-            return f"""You are a professional US/A/H market analyst. Please produce a concise US market recap report based on the data below.
+        return f"""你是美股复盘助手。请基于数据生成简洁复盘，必须严格遵守以下规则：
+- 输出必须为中文
+- 只用项目符号，每条一行，不要长段落
+- 不要编造数据，无法确认就跳过该条
+- 不要新增任何未列出的版块
+- 总字数不超过300字
 
-[Requirements]
-- Output pure Markdown only
-- No JSON
-- No code blocks
-- Use emoji sparingly in headings (at most one per heading)
+数据参考：
+日期：{overview.date}
+指数数据：
+{indices_block}
 
----
+新闻摘要：
+{news_block}
 
-# Today's Market Data
+板块数据：
+{sector_hint}
 
-## Date
-{overview.date}
+宏观指标：
+{macro_block}
 
-## Major Indices
-{indices_placeholder}
+输出模板（必须严格一致）：
 
-{stats_block}
+## {overview.date} 美股复盘
 
-{sector_block}
+### 📊 指数表现
+- （逐条列出主要指数：名称 收盘价 涨跌幅%）
 
-## Market News
-{news_placeholder}
+### 📰 重大事件
+- （3-5条，只有真正影响市场的事项；没有就跳过）
 
-## Macro Indicators
-{macro_text if macro_text else "No macro indicators available"}
+### 🔄 板块轮动
+- （2-3条，说明领涨/领跌板块及原因）
 
-{data_no_indices_hint_en}
-
-{self.strategy.to_prompt_block()}
-
----
-
-# Output Template (follow this structure)
-
-## {overview.date} US Market Recap
-
-### 1. Market Summary
-(2-3 sentences on overall market performance, index moves, volume)
-
-### 2. Index Commentary
-(Analyse S&P 500, Nasdaq, Dow and other major index moves.)
-
-### 3. Fund Flows
-(Interpret volume and flow implications)
-
-### 4. Sector/Theme Highlights
-(Analyze drivers behind leading/lagging sectors)
-
-### 5. Macro Cross-Asset Context
-(Explain what VIX, 10Y Treasury yield, and DXY imply for the market.)
-
-### 6. Outlook
-(Short-term and weekly view based on price action, macro, and news)
-
-### 7. Risk Alerts
-(Key risks to watch)
-
-### 8. Strategy Plan
-(Provide risk-on/neutral/risk-off stance, position sizing guideline, and one invalidation trigger.)
-
----
-
-Output the report content directly, no extra commentary.
-{portfolio_block}
-"""
-
-        # A 股场景使用中文提示语
-        return f"""你是一位专业的A/H/美股市场分析师，请根据以下数据生成一份简洁的大盘复盘报告。
-
-【重要】输出要求：
-- 必须输出纯 Markdown 文本格式
-- 禁止输出 JSON 格式
-- 禁止输出代码块
-- emoji 仅在标题处少量使用（每个标题最多1个）
-
----
-
-# 今日市场数据
-
-## 日期
-{overview.date}
-
-## 主要指数
-{indices_placeholder}
-
-{stats_block}
-
-{sector_block}
-
-## 市场新闻
-{news_placeholder}
-
-{data_no_indices_hint}
-
-{self.strategy.to_prompt_block()}
-
----
-
-# 输出格式模板（请严格按此格式输出）
-
-## {overview.date} 大盘复盘
-
-### 一、市场总结
-（2-3句话概括今日市场整体表现，包括指数涨跌、成交量变化）
-
-### 二、指数点评
-（{self.profile.prompt_index_hint}）
-
-### 三、资金动向
-（解读成交额流向的含义）
-
-### 四、热点解读
-（分析领涨领跌板块背后的逻辑和驱动因素）
-
-### 五、后市展望
-（结合当前走势和新闻，给出明日市场预判）
-
-### 六、风险提示
-（需要关注的风险点）
-
-### 七、策略计划
-（给出进攻/均衡/防守结论，对应仓位建议，并给出一个触发失效条件；最后补充“建议仅供参考，不构成投资建议”。）
-
----
-
-请直接输出复盘报告内容，不要输出其他说明文字。
+### ⚠️ 明日关注
+- （2-3条，提示明日风险或关注事件）
 """
     
     def _generate_template_review(self, overview: MarketOverview, news: List) -> str:
