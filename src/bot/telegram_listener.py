@@ -12,11 +12,13 @@ import re
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import requests
 
-from src.core.pipeline import analyze_single_stock
+from src.config import get_config
+from src.core.pipeline import StockAnalysisPipeline
+from src.portfolio.google_sheets_reader import load_portfolio_from_config
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +44,13 @@ def _save_state(path: Path, state: Dict) -> None:
     path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
-def _send_message(token: str, chat_id: str, text: str) -> bool:
+def _send_message(token: str, chat_id: str, text: str, parse_mode: Optional[str] = None) -> bool:
     if not text:
         return False
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     try:
         resp = requests.post(url, json=payload, timeout=10)
         if resp.status_code == 200:
@@ -85,48 +89,54 @@ def _build_portfolio_scorecard() -> str:
     return "\n".join(lines)
 
 
-def _build_analysis_reply(result) -> str:
-    if not result:
-        return "Could not find data for this ticker. Check the ticker and try again."
+def _build_evaluation_reply(ticker: str, payload: Dict[str, Any]) -> str:
+    def esc(value: Optional[str]) -> str:
+        if value is None:
+            return ""
+        return (
+            str(value)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
 
-    date_str = time.strftime("%B %d %Y").replace(" 0", " ")
-    name = getattr(result, "name", "")
-    code = getattr(result, "code", "")
-    score = getattr(result, "sentiment_score", "N/A")
-    advice = getattr(result, "operation_advice", "N/A")
-    trend = getattr(result, "trend_prediction", "")
-    price = getattr(result, "current_price", None)
-    price_text = f"${price:,.2f}" if isinstance(price, (int, float)) else "N/A"
-
-    sniper = result.get_sniper_points() if hasattr(result, "get_sniper_points") else {}
-    ideal_buy = sniper.get("ideal_buy", "N/A")
-    stop_loss = sniper.get("stop_loss", "N/A")
-    take_profit = sniper.get("take_profit", "N/A")
-
-    summary = getattr(result, "analysis_summary", "") or ""
-    risk = getattr(result, "risk_warning", "") or ""
+    buy_verdict = esc(payload.get("buy_verdict", ""))
+    verdict_reason = esc(payload.get("verdict_reason", ""))
+    quality_score = esc(payload.get("quality_score", ""))
+    quality_summary = esc(payload.get("quality_summary", ""))
+    growth_score = esc(payload.get("growth_score", ""))
+    growth_summary = esc(payload.get("growth_summary", ""))
+    macro_fit = esc(payload.get("macro_fit", ""))
+    macro_summary = esc(payload.get("macro_summary", ""))
+    portfolio_fit_comment = esc(payload.get("portfolio_fit_comment", ""))
+    entry_zone = esc(payload.get("entry_zone", ""))
+    stop_loss = esc(payload.get("stop_loss", ""))
+    key_risks = esc(payload.get("key_risks", ""))
+    watch_for = esc(payload.get("watch_for", ""))
 
     lines = [
-        f"📊 {name} Analysis — {date_str}",
+        f"🔍 {esc(ticker)} — {buy_verdict}",
         "",
-        f"💰 Price: {price_text}",
-        f"📈 Score: {score}/100 — {advice}",
-        f"🎯 Trend: {trend}" if trend else "🎯 Trend: N/A",
+        f"📝 {verdict_reason}",
         "",
-        f"💡 Verdict: {summary}" if summary else "💡 Verdict: N/A",
+        f"<b>📊 Quality</b>: {quality_score}/100",
+        f"{quality_summary}",
+        "",
+        f"<b>📈 Growth</b>: {growth_score}/100",
+        f"{growth_summary}",
+        "",
+        f"<b>🌍 Macro</b>: {macro_fit}",
+        f"{macro_summary}",
+        "",
+        "<b>🗂 Portfolio Fit</b>:",
+        f"{portfolio_fit_comment}",
+        "",
+        f"<b>💰 Entry</b>: {entry_zone} | <b>Stop</b>: {stop_loss}",
+        "",
+        f"⚠️ Risks: {key_risks}",
+        f"👀 Watch for: {watch_for}",
     ]
-
-    if risk:
-        lines.append("")
-        lines.append(f"⚠️ Portfolio Warning: {risk}")
-
-    lines.extend([
-        "",
-        f"🛑 Stop Loss if entering: {stop_loss}",
-        f"✅ Take Profit target: {take_profit}",
-        f"🎯 Ideal Buy: {ideal_buy}",
-    ])
-    return "\n".join(lines)
+    return "\n".join([line for line in lines if line is not None])
 
 
 def _handle_message(token: str, chat_id: str, text: str) -> None:
@@ -160,12 +170,58 @@ def _handle_message(token: str, chat_id: str, text: str) -> None:
 
     threading.Thread(target=_late_notice, daemon=True).start()
 
-    result = analyze_single_stock(ticker, include_portfolio_context=True)
+    config = get_config()
+    portfolio = load_portfolio_from_config(config) or {}
+    pipeline = StockAnalysisPipeline(config=config)
+    portfolio_fit = pipeline._build_portfolio_fit_context(ticker, portfolio)
+
+    stock_name = None
+    realtime = None
+    try:
+        realtime = pipeline.fetcher_manager.get_realtime_quote(ticker)
+        stock_name = getattr(realtime, "name", None) if realtime else None
+    except Exception:
+        realtime = None
+    if not stock_name:
+        try:
+            stock_name = pipeline.fetcher_manager.get_stock_name(ticker)
+        except Exception:
+            stock_name = None
+
+    context = {
+        "code": ticker,
+        "stock_name": stock_name or ticker,
+        "date": pipeline._get_reference_date(ticker).isoformat(),
+    }
+    if realtime:
+        context["realtime"] = {
+            "name": getattr(realtime, "name", None),
+            "price": getattr(realtime, "price", None),
+            "change_pct": getattr(realtime, "change_pct", None),
+            "volume_ratio": getattr(realtime, "volume_ratio", None),
+            "turnover_rate": getattr(realtime, "turnover_rate", None),
+            "pe_ratio": getattr(realtime, "pe_ratio", None),
+            "pb_ratio": getattr(realtime, "pb_ratio", None),
+            "total_mv": getattr(realtime, "total_mv", None),
+            "circ_mv": getattr(realtime, "circ_mv", None),
+            "high_52w": getattr(realtime, "high_52w", None),
+            "low_52w": getattr(realtime, "low_52w", None),
+        }
+
+    try:
+        fundamentals = pipeline.fetcher_manager.get_fundamentals(ticker) or {}
+        if fundamentals:
+            context["fundamentals"] = fundamentals
+    except Exception:
+        pass
+
+    result = pipeline.analyzer.evaluate_for_purchase(context, portfolio_fit)
     done_flag["done"] = True
     if result is None:
-        _send_message(token, chat_id, f"Could not find data for {ticker}. Check the ticker and try again.")
+        _send_message(token, chat_id, f"Could not evaluate {ticker}. Please try again.")
         return
-    _send_message(token, chat_id, _build_analysis_reply(result))
+    reply = _build_evaluation_reply(ticker, result)
+    _send_message(token, chat_id, reply, parse_mode="HTML")
 
 
 def _poll_loop() -> None:

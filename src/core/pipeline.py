@@ -37,7 +37,7 @@ except Exception:
     StockTrendAnalyzer = None
     TrendAnalysisResult = None
 from src.core.trading_calendar import get_market_reference_date
-from src.core.sector_map import get_concentration_warning
+from src.core.sector_map import get_concentration_warning, get_sector
 from src.models.bot_message import BotMessage
 
 
@@ -80,15 +80,9 @@ class StockAnalysisPipeline:
         )
         
         # 初始化各模块
-        if get_db is None or StockTrendAnalyzer is None:
-            raise RuntimeError(
-                "Stock analysis pipeline dependencies are missing. "
-                "Ensure src.storage.py and src.stock_analyzer.py exist if you need this pipeline."
-            )
-
-        self.db = get_db()
+        self.db = get_db() if get_db is not None else None
         self.fetcher_manager = DataFetcherManager()
-        self.trend_analyzer = StockTrendAnalyzer()  # 趋势分析器
+        self.trend_analyzer = StockTrendAnalyzer() if StockTrendAnalyzer is not None else None
         self.analyzer = GeminiAnalyzer()
         self.notifier = NotificationService(source_message=source_message)
         self._history_cache: Dict[Tuple[str, int], pd.DataFrame] = {}
@@ -132,6 +126,76 @@ class StockAnalysisPipeline:
             df, _ = self.fetcher_manager.get_daily_data(stock_code, days=lookback_days)
             self._history_cache[cache_key] = df.copy() if df is not None else pd.DataFrame()
         return self._history_cache[cache_key].copy()
+
+    def _build_portfolio_fit_context(self, ticker: str, portfolio: Dict[str, Dict]) -> Dict[str, Any]:
+        """
+        Build sector concentration and correlation context for a prospective ticker.
+        """
+        ticker_upper = (ticker or "").strip().upper()
+        holdings = [t.strip().upper() for t in portfolio.keys() if t and t.strip()]
+        total_holdings = len(holdings)
+
+        sector = get_sector(ticker_upper)
+        matching = [t for t in holdings if get_sector(t) == sector]
+        concentration_pct = (len(matching) + 1) / (total_holdings + 1) * 100
+        if concentration_pct > 40:
+            concentration_flag = "high_concentration"
+        elif concentration_pct >= 25:
+            concentration_flag = "moderate_concentration"
+        else:
+            concentration_flag = "diversified"
+
+        top_correlations: List[Dict[str, Any]] = []
+        try:
+            import yfinance as yf
+            base_hist = yf.Ticker(ticker_upper).history(period="60d")
+            base_close = base_hist["Close"].dropna() if base_hist is not None else None
+            if base_close is not None and not base_close.empty:
+                for peer in holdings:
+                    if peer == ticker_upper:
+                        continue
+                    try:
+                        peer_hist = yf.Ticker(peer).history(period="60d")
+                        peer_close = peer_hist["Close"].dropna() if peer_hist is not None else None
+                        if peer_close is None or peer_close.empty:
+                            continue
+                        merged = pd.concat([base_close, peer_close], axis=1, join="inner").dropna()
+                        if len(merged) < 10:
+                            continue
+                        corr = float(merged.iloc[:, 0].corr(merged.iloc[:, 1]))
+                        flag = "highly_correlated" if corr > 0.75 else "watch"
+                        top_correlations.append(
+                            {"ticker": peer, "correlation": round(corr, 2), "flag": flag}
+                        )
+                    except Exception:
+                        continue
+        except Exception:
+            top_correlations = []
+
+        top_correlations = sorted(
+            top_correlations, key=lambda x: x.get("correlation", 0), reverse=True
+        )[:3]
+
+        if top_correlations:
+            top = top_correlations[0]
+            fit_summary = (
+                f"Adding {ticker_upper} would make {sector} {concentration_pct:.1f}% of portfolio "
+                f"and correlates strongly with {top['ticker']} ({top['correlation']:.2f})"
+            )
+        else:
+            fit_summary = (
+                f"Adding {ticker_upper} would make {sector} {concentration_pct:.1f}% of portfolio "
+                "with no strong correlations detected"
+            )
+
+        return {
+            "sector": sector,
+            "sector_concentration": concentration_flag,
+            "concentration_pct": round(concentration_pct, 1),
+            "concentration_peers": matching,
+            "top_correlations": top_correlations,
+            "fit_summary": fit_summary,
+        }
 
     def _build_fundamental_context(self, stock_code: str, realtime_quote: Any) -> Dict[str, Any]:
         """Build long-term context fields from fundamentals and relative performance."""
@@ -1230,4 +1294,3 @@ def analyze_single_stock(
             result.risk_warning = warning
 
     return result
-

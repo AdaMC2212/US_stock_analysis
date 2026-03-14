@@ -434,6 +434,42 @@ class GeminiAnalyzer:
 
 请明确这是短期噪音还是长期有效的关键信号。"""
 
+    EVALUATOR_PROMPT = """你是一位帮助散户决定是否买入某只美股的独立分析师。
+用户尚未持有该股票，想评估是否值得买入。
+
+分析优先级（按重要性排序）：
+1. 質量 — ROE、毛利率、营业利润率、负债权益比、自由现金流
+2. 成長 — 营收增长、EPS增长、Forward EPS预期、分析师评级趋势
+3. 宏觀适配 — 当前利率/美元环境下该行业的顺风/逆风
+4. 组合适配 — 与现有持仓的板块重叠和相关性（由代码预计算提供）
+
+技术面仅作为入场时机参考，不影响买入决策。
+
+输出必须为严格JSON，包含以下字段：
+{
+    "stock_name": "公司名称",
+    "buy_verdict": "强烈推荐/值得考虑/需要等待/不建议买入",
+    "verdict_reason": "一句话核心理由",
+    "quality_score": 0-100,
+    "quality_summary": "质量评估，2-3句",
+    "growth_score": 0-100,
+    "growth_summary": "成长评估，2-3句",
+    "macro_fit": "顺风/中性/逆风",
+    "macro_summary": "宏观适配说明，1-2句",
+    "portfolio_fit_comment": "对传入的组合适配数据的解读，1-2句",
+    "entry_zone": "建议买入价格区间，如$X–$Y",
+    "stop_loss": "止损位",
+    "key_risks": "最重要的2-3个风险，逗号分隔",
+    "watch_for": "买入前需要确认的1-2个条件"
+}
+
+评分参考：
+- 80+: 该维度是买入的有力支撑
+- 60-79: 该维度可接受但有瑕疵
+- 40-59: 该维度存在疑虑，需要更多确认
+- <40: 该维度是买入的阻碍因素
+"""
+
     def __init__(self, api_key: Optional[str] = None):
         """Initialize LLM Analyzer via LiteLLM.
 
@@ -520,7 +556,12 @@ class GeminiAnalyzer:
         """Check if LiteLLM is properly configured with at least one API key."""
         return self._router is not None or self._litellm_available
 
-    def _call_litellm(self, prompt: str, generation_config: dict) -> Tuple[str, str]:
+    def _call_litellm(
+        self,
+        prompt: str,
+        generation_config: dict,
+        system_prompt: Optional[str] = None,
+    ) -> Tuple[str, str]:
         """Call LLM via litellm with fallback across configured models.
 
         When channels/YAML are configured, every model goes through the Router
@@ -549,13 +590,14 @@ class GeminiAnalyzer:
         use_channel_router = self._has_channel_config(config)
 
         last_error = None
+        effective_system_prompt = system_prompt or self.SYSTEM_PROMPT
         for model in models_to_try:
             try:
                 model_short = model.split("/")[-1] if "/" in model else model
                 call_kwargs: Dict[str, Any] = {
                     "model": model,
                     "messages": [
-                        {"role": "system", "content": self.SYSTEM_PROMPT},
+                        {"role": "system", "content": effective_system_prompt},
                         {"role": "user", "content": prompt},
                     ],
                     "temperature": temperature,
@@ -752,6 +794,69 @@ class GeminiAnalyzer:
                 model_used=None,
             )
     
+    def evaluate_for_purchase(
+        self,
+        context: Dict[str, Any],
+        portfolio_fit_context: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Evaluate whether a user should buy a stock they do not currently hold.
+        """
+        if not self.is_available():
+            logger.warning("LLM unavailable: evaluate_for_purchase skipped.")
+            return None
+
+        prompt = self._format_evaluator_prompt(context, portfolio_fit_context)
+        config = get_config()
+        generation_config = {
+            "temperature": config.gemini_temperature,
+            "max_output_tokens": 4096,
+        }
+        try:
+            response_text, model_used = self._call_litellm(
+                prompt,
+                generation_config,
+                system_prompt=self.EVALUATOR_PROMPT,
+            )
+            repaired = repair_json(response_text or "")
+            payload = json.loads(repaired) if repaired else None
+            if not isinstance(payload, dict):
+                logger.warning("evaluate_for_purchase returned non-dict payload.")
+                return None
+            payload["model_used"] = model_used
+            return payload
+        except Exception as exc:
+            logger.warning("evaluate_for_purchase failed: %s", exc)
+            return None
+
+    def _format_evaluator_prompt(
+        self,
+        context: Dict[str, Any],
+        portfolio_fit_context: Dict[str, Any],
+    ) -> str:
+        code = context.get("code", "UNKNOWN")
+        stock_name = context.get("stock_name") or context.get("name") or STOCK_NAME_MAP.get(code, code)
+        date_str = context.get("date", "")
+        fundamentals = context.get("fundamentals", {})
+        realtime = context.get("realtime", {})
+        news = context.get("news_context")
+
+        fundamentals_text = json.dumps(fundamentals, ensure_ascii=False, default=str)
+        realtime_text = json.dumps(realtime, ensure_ascii=False, default=str)
+        portfolio_text = json.dumps(portfolio_fit_context, ensure_ascii=False, default=str)
+        news_text = news if isinstance(news, str) else ""
+
+        return (
+            "请根据以下数据进行评估，输出严格JSON：\n\n"
+            f"股票代码: {code}\n"
+            f"股票名称: {stock_name}\n"
+            f"日期: {date_str}\n\n"
+            f"实时行情: {realtime_text}\n"
+            f"基本面: {fundamentals_text}\n"
+            f"组合适配: {portfolio_text}\n"
+            f"新闻摘要: {news_text}\n"
+        )
+
     def _format_prompt(
         self, 
         context: Dict[str, Any], 
