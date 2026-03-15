@@ -182,6 +182,7 @@ Triggered by typing `analyse TICKER` in Telegram. This is designed for evaluatin
 💰 Entry: $X–$Y | Stop: $Z
 
 ⚠️ Risks: [top 2-3 risks]
+
 👀 Watch for: [conditions to confirm before buying]
 ```
 
