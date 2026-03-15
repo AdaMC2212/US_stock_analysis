@@ -1,129 +1,365 @@
 # US Stock Analyzer
 
-US stock analysis pipeline powered by Gemini, with Telegram delivery.
-
-This fork is intentionally streamlined and focused on US stocks. It supports:
-
-- US stocks + US market review only
-- Gemini as the LLM provider
-- Telegram as the notification channel
-- Local runs or scheduled GitHub Actions runs
-- Optional signal filtering, portfolio-aware market review, bot listener, and earnings evaluator
+A personal US stock analysis pipeline powered by Gemini, with Telegram delivery. Built for long-term retail investors who want daily market awareness, systematic monthly deployment, and on-demand stock evaluation — all delivered to Telegram without needing to open a brokerage or news app.
 
 ---
 
 ## What It Does
 
-- Analyzes a configurable watchlist of US tickers (e.g., `AAPL`, `MSFT`, `NVDA`, `SPY`, `QQQ`)
-- Generates a US market review
-- Produces two Telegram message types:
-  - **Buy Alerts** for confluence signals above a threshold
-  - **Daily Digest** summary for all watchlist stocks
-- Tracks monthly cash deployment and suggests per-buy allocation
-- Adds a portfolio impact section to the market review (optional)
-- Supports a Telegram chatbot for on-demand analysis (optional)
-- Evaluates recent earnings using FMP + Gemini (optional)
+The system runs on two separate flows:
+
+**Daily automated flow (runs every morning after US market close):**
+- Fetches price data, fundamentals, and news for your watchlist
+- Runs AI analysis on each stock using a quality-first framework
+- Sends buy alerts for high-confidence signals
+- Sends a daily digest summary for all watchlist stocks
+- Sends a US market review with portfolio impact
+- Evaluates recent earnings reports if any watchlist stocks reported
+- Sends a portfolio snapshot showing today's moves and biggest movers
+
+**On-demand flow (triggered via Telegram bot):**
+- Type `analyse TICKER` to evaluate any stock for potential purchase
+- Returns a quality/growth/valuation/macro assessment
+- Includes portfolio fit check — sector concentration and correlation with your existing holdings
 
 ---
 
-## How It Works
+## How It Works — Daily Flow
 
-Main entrypoint: `main.py`
+### Step 1 — Data Fetching
+For each ticker in `STOCK_LIST`, the pipeline fetches:
+- Up to 252 trading days of historical OHLCV data via Yahoo Finance
+- Realtime quote (current price, change %, volume)
+- Fundamentals: PE, Forward PE, PEG, gross margin, profit margin, ROE, debt/equity, free cash flow, revenue growth, EPS growth, 52-week range, sector/industry, analyst ratings
+- Relative strength vs SPY (how this stock has performed vs the benchmark)
+- News from up to 5 parallel searches across Tavily/Brave/SerpAPI covering: latest news, risk factors, earnings expectations, analyst reports, industry outlook
 
-Runtime flow (daily run):
+### Step 2 — Technical Analysis
+The `StockTrendAnalyzer` computes:
+- MA5/MA10/MA20/MA60 alignment and trend status (Strong Bull → Strong Bear)
+- Bias rate: how far price has deviated from MA5 (>5% above = do not chase)
+- Volume analysis: shrinking volume on pullback = healthy consolidation signal
+- MACD (12/26/9): golden cross above zero axis = strongest buy signal
+- RSI (6/12/24): overbought >70, oversold <30
+- Support/resistance levels based on MA proximity
+- A signal score (0–100) combining all of the above
 
-1. Load config from `.env` or GitHub Actions secrets.
-2. Resolve the correct US trading session for your configured timezone.
-3. Fetch recent price data + ~1 year of history for each ticker.
-4. Enrich with fundamentals, 52-week range, relative strength vs `SPY`, and recent news.
-5. Send context to Gemini via LiteLLM.
-6. Parse output into structured analysis results.
-7. Apply signal filtering:
-   - Buy alerts for high-confluence signals
-   - Daily digest summary for all stocks
-8. Optional US market review (with portfolio impact section if enabled).
-9. Optional earnings evaluator for recent reports.
-10. Send Telegram messages.
+### Step 3 — AI Analysis (Quality-First Framework)
+All data is assembled and sent to Gemini. The AI evaluates each stock across four dimensions in priority order:
 
-Key modules:
+**1. Quality (most important)**
+Gross margin >40% indicates pricing power. ROE >15% indicates capital efficiency. Positive free cash flow means the business genuinely makes money. Debt/equity <1.5 means the company can survive rate hikes. The core question: can this company survive and stay profitable in a downturn?
 
-- `main.py`: CLI entrypoint and orchestration
-- `src/core/pipeline.py`: stock analysis pipeline
-- `src/analyzer.py`: Gemini-based stock analysis
-- `src/core/market_review.py`: US market review flow
-- `src/market_analyzer.py`: market review prompt generation
-- `src/notification.py`: report building and Telegram delivery
-- `src/core/signal_filter.py`: buy alert vs digest filtering
-- `src/core/budget_tracker.py`: monthly cash allocation tracking
-- `src/bot/telegram_listener.py`: Telegram polling listener (optional)
-- `src/core/earnings_evaluator.py`: earnings summarization (optional)
-- `data_provider/fmp_provider.py`: FMP financial data (optional)
+**2. Growth**
+Revenue growth >15% YoY is strong, 5–15% is acceptable, <5% needs a clear reason. EPS growth trend — accelerating or decelerating? Forward EPS estimates — are analysts raising or cutting? The core question: will this company be worth more in 3 years?
+
+**3. Valuation Relative to Growth**
+PEG ratio (PE / growth rate) is used rather than raw PE. PEG <1 is cheap, 1–2 is fair, >2 is expensive. Raw PE is misleading for growth stocks. The core question: is the price paying a fair premium for the growth?
+
+**4. Macro Fit**
+Interest rate environment impact on the sector. Geopolitical or regulatory risk. Relative strength vs SPY over 6 months. The core question: are external forces working for or against this stock over the next 12 months?
+
+The AI returns a structured JSON with `sentiment_score` (0–100), `operation_advice`, `trend_prediction`, `monthly_priority_rank`, `monthly_dip_opportunity`, and detailed analysis fields.
+
+**Scoring reference:**
+- 85–100: Strong fundamentals + price in a reasonable pullback zone → strong add
+- 70–84: Good fundamentals + acceptable price → suitable for gradual accumulation
+- 55–69: Average fundamentals or price too high → wait for better entry
+- 40–54: Fundamentals uncertain or price elevated → observe only
+- <40: Fundamentals deteriorating or valuation extreme → do not hold
+
+### Step 4 — Monthly Deployment Ranking (Hybrid Logic)
+After all stocks are analyzed, the pipeline runs a post-processing re-rank:
+
+**Fundamental score (60% weight):** Derived from the AI's `sentiment_score`, which reflects quality + growth + valuation + macro.
+
+**Price opportunity score (40% weight):** Based on where current price sits relative to MA20:
+- Price at or below MA20 (healthy pullback): +40 points — best buying opportunity
+- Price 0–3% above MA20: +30 points — still reasonable
+- Price 3–8% above MA20: +15 points — slightly elevated
+- Price >8% above MA20: +0 points — do not chase
+
+The combined `opportunity_score` determines `monthly_priority_rank`. This means a fundamentally strong stock that has pulled back gets ranked higher than one that has been running up, even if the AI scored them similarly on fundamentals. Rank #1 = best quality at best current price this month.
+
+The `monthly_dip_opportunity.verdict` is also corrected if the AI recommended immediate buying on a stock that is actually trading well above MA20 — the code overrides this to "等待回调" (wait for pullback).
+
+### Step 5 — Signal Filtering
+Results are split into two outputs:
+- **Buy Alert**: only sent if `sentiment_score ≥ 70`, `decision_type = buy`, advice is Accumulate/加仓, AND the same signal triggered the previous day (consecutive day check prevents noise)
+- **Daily Digest**: all watchlist stocks, one line each
+
+### Step 6 — Budget Tracker
+If `MONTHLY_BUDGET` is configured, the budget tracker manages your monthly cash deployment:
+- **1st buy of the month**: deploys 45% of monthly budget → goes to rank #1 stock
+- **2nd buy of the month**: deploys 30% → goes to rank #2 stock
+- **3rd+ buy**: only triggers if signal scores 85+ (exceptional) → deploys remaining
+
+This enforces systematic deployment rather than lump-sum investing.
+
+### Step 7 — Notifications
+Four message types are sent to Telegram:
+1. **Buy Alert** — price, entry zone, stop loss, take profit, confidence score, trigger reasons
+2. **Daily Digest** — one-line summary per stock with score and advice
+3. **Market Review** — 4-section Chinese summary of market events (see below)
+4. **Portfolio Snapshot** — total value, overall P&L, today's biggest movers
 
 ---
 
-## Analysis Basis
+## Market Review
 
-The analysis combines:
+The daily market review runs after the stock analysis and covers:
 
-- Historical and recent market data from the data provider layer
-- Realtime quote augmentation when available
-- Technical context (trend, moving averages, confluence signals)
-- Fundamental context (valuation, growth, leverage, 52-week range)
-- Recent news from multiple providers
-- Gemini prompt synthesis and structured output parsing
+**Section 1 — Index Performance:** SPY, QQQ, DJI closing levels and % change, plus VIX (fear gauge) and Gold (risk-off signal).
 
-This is an AI-assisted analysis tool, not an execution system and not financial advice.
+**Section 2 — Major Events:** Fed decisions, earnings reports, macro data releases, geopolitical events that actually moved the market. Maximum 5 bullet points, skipped if nothing significant happened.
+
+**Section 3 — Sector Rotation:** Which sectors led and lagged, and why. 2–3 bullets.
+
+**Section 4 — Watch Tomorrow:** Key risks or events to monitor. 2–3 bullets.
+
+The review is written in Chinese in concise bullet-point format (under 300 words total) and delivered in Telegram HTML format so formatting renders correctly.
+
+**Portfolio Snapshot** is appended after the market review showing:
+- Total portfolio value and overall P&L
+- Today's biggest gainers and losers from your holdings, weighted by dollar impact
+
+**Portfolio Impact** uses live prices from your Google Sheet (which auto-updates via `GOOGLEFINANCE()` formulas), supplemented by today's `change_pct` fetched from Yahoo Finance at runtime.
 
 ---
 
-## Configuration
+## Earnings Evaluator
 
-The supported configuration lives in `.env.example`.
+When any stock in your watchlist reports earnings within the last `EARNINGS_LOOKBACK_DAYS` days, the earnings evaluator runs automatically after the market review:
 
-**Required for normal use:**
+1. Fetches income statement, balance sheet, and cash flow from Financial Modeling Prep (FMP)
+2. Evaluates against long-term investor criteria:
+   - Gross margin: is it above 40% and improving?
+   - Net profit margin: positive and growing?
+   - EPS: growing YoY?
+   - Current ratio: above 1.5 is healthy
+   - Debt/equity: above 2.0 is concerning
+   - Free cash flow: must be positive
+3. Returns a structured verdict: **Strong / Decent / Weak / Concerning** with one-line commentary per metric and a 2–3 sentence long-term take
 
-- `STOCK_LIST`
-- `GEMINI_API_KEY`
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
+Results are cached for 24 hours to avoid redundant API calls.
 
-**Signal filtering:**
+---
 
-- `BUY_ALERT_MIN_SCORE=70`
-- `BUY_ALERT_ENABLED=true`
-- `DAILY_DIGEST_ENABLED=true`
+## On-Demand Stock Analysis (`analyse TICKER`)
 
-**Monthly cash allocation (optional):**
+Triggered by typing `analyse TICKER` in Telegram. This is designed for evaluating stocks you **do not yet own** to decide if they are worth buying.
 
-- `MONTHLY_BUDGET=400`
-- `MONTHLY_DEPOSIT_DATE=1`
+### What it evaluates
 
-**Portfolio-aware market review (optional):**
+**Quality score (0–100):** ROE, gross margin, operating margin, debt/equity, free cash flow. Answers: is this a well-run business?
 
-- `PORTFOLIO_IMPACT_ENABLED=true`
+**Growth score (0–100):** Revenue growth YoY, EPS growth trend, Forward EPS direction, analyst rating trend. Answers: is the business compounding value?
 
-**Telegram bot listener (optional):**
+**Macro fit:** Current rate/dollar environment impact on the sector. Structural headwinds or tailwinds. Answers: are external forces working for or against this stock?
 
-- `BOT_LISTENER_ENABLED=true`
-- `BOT_LISTENER_POLL_INTERVAL=5`
-- `CONCENTRATION_WARN_THRESHOLD=60`
+**Portfolio fit (computed in code, not AI):**
+- *Sector concentration*: checks what % of your current portfolio is already in the same sector. Flags as high concentration if adding this stock would push a sector above 40% of total holdings. Uses Yahoo Finance sector data as a fallback for tickers not in the hardcoded sector map.
+- *Correlation*: fetches 60-day daily price history for the new ticker and all portfolio holdings (concurrent fetches, max 4 workers). Computes Pearson correlation. Flags any existing holding with correlation >0.75 as "highly correlated" — meaning they tend to move together, reducing diversification benefit.
 
-**Earnings evaluator (optional):**
+### Reply format
+```
+🔍 TICKER — Verdict
 
-- `EARNINGS_EVAL_ENABLED=true`
-- `FMP_API_KEY=your_key_here`
-- `EARNINGS_LOOKBACK_DAYS=7`
+📝 One-line core reason
 
-**Useful optional settings:**
+📊 Quality: XX/100
+   [2-3 sentence quality summary]
 
-- `TAVILY_API_KEYS`, `SERPAPI_API_KEYS`, `BRAVE_API_KEYS`, `BOCHA_API_KEYS`
-- `MARKET_REVIEW_ENABLED`
-- `TRADING_DAY_CHECK_ENABLED`
-- `ANALYSIS_DELAY`
-- `TIMEZONE`
-- `SCHEDULE_TIME`
-- `POST_MARKET_DELAY`
-- `HISTORICAL_LOOKBACK_DAYS`
+📈 Growth: XX/100
+   [2-3 sentence growth summary]
+
+🌍 Macro: Tailwind / Neutral / Headwind
+   [1-2 sentence macro summary]
+
+🗂 Portfolio Fit:
+   [Sector concentration and correlation comment]
+
+💰 Entry: $X–$Y | Stop: $Z
+
+⚠️ Risks: [top 2-3 risks]
+👀 Watch for: [conditions to confirm before buying]
+```
+
+---
+
+## Telegram Bot Commands
+
+| Command | Description |
+|---|---|
+| `analyse TICKER` | On-demand stock evaluation for purchase consideration |
+| `portfolio` | Shows last known score and decision for all watchlist stocks |
+| `help` | Lists available commands |
+
+The bot listener runs as a separate GitHub Actions workflow (`bot_listener.yml`) on an hourly schedule, polling for new messages.
+
+---
+
+## Portfolio Integration (Google Sheets)
+
+Your portfolio is read from a Google Sheet in read-only mode using a service account. The sheet must have these exact column headers:
+
+| Column | Description |
+|---|---|
+| `Ticker` | Stock ticker symbol |
+| `Shares` | Number of shares held |
+| `avg_buy_price` | Your average cost basis |
+| `current_price` | Current price (use `GOOGLEFINANCE()` formula — auto-updates) |
+| `total_value` | Current total value (shares × current_price) |
+| `PNL` | Dollar profit/loss |
+| `allocation_pct` | % of total portfolio |
+
+The `pnl_pct` (percentage return since purchase) is computed in code from `avg_buy_price` and `current_price` — you do not need a separate column for it.
+
+Today's daily change % is fetched from Yahoo Finance at runtime and is not read from the sheet.
+
+---
+
+## Stock Tiers
+
+Stocks in your watchlist are classified into two tiers which affects how the AI frames its advice:
+
+**Tier 1 — Core positions** (set via `TIER1_STOCKS`): Long-term hold quality companies. The AI focuses on monthly DCA entry zones and does not recommend taking profit unless fundamentals deteriorate. Examples: VOO, QQQ, NVDA, META, GOOGL.
+
+**Tier 2 — Cyclical positions** (set via `TIER2_STOCKS`): Stocks that benefit from buying at cycle lows and trimming at cycle highs. The AI must provide a specific `trim_target` price range. Examples: TSLA, MU, IBIT.
+
+Any stock in `STOCK_LIST` not in either tier defaults to Tier 1 behaviour.
+
+---
+
+## Project Structure
+
+```
+.
+├── main.py                          # Entrypoint: market review + optional scheduling
+├── src/
+│   ├── analyzer.py                  # GeminiAnalyzer: AI analysis via LiteLLM
+│   ├── stock_analyzer.py            # StockTrendAnalyzer: MA/MACD/RSI/volume logic
+│   ├── storage.py                   # DatabaseManager: SQLite for OHLCV + history
+│   ├── market_analyzer.py           # MarketAnalyzer: market review prompt + report
+│   ├── notification.py              # NotificationService: report building
+│   ├── search_service.py            # SearchService: multi-provider news search
+│   ├── config.py                    # Config: singleton env-var management
+│   ├── bot/
+│   │   └── telegram_listener.py     # Bot polling: analyse/portfolio/help commands
+│   ├── core/
+│   │   ├── pipeline.py              # StockAnalysisPipeline: orchestrates full flow
+│   │   ├── market_review.py         # run_market_review(): daily market review flow
+│   │   ├── signal_filter.py         # Buy alert vs digest filtering + history
+│   │   ├── budget_tracker.py        # Monthly cash deployment tracker
+│   │   ├── earnings_evaluator.py    # Earnings report evaluation via FMP + Gemini
+│   │   ├── sector_map.py            # Sector classification with yfinance fallback
+│   │   └── trading_calendar.py      # US trading day resolution
+│   ├── portfolio/
+│   │   └── google_sheets_reader.py  # Read-only Google Sheets portfolio reader
+│   └── notification_sender/
+│       └── telegram_sender.py       # Telegram Bot API: all message formatting
+├── data_provider/
+│   ├── base.py                      # BaseFetcher + DataFetcherManager
+│   ├── yfinance_fetcher.py          # Yahoo Finance: price, fundamentals, realtime
+│   └── fmp_provider.py              # FMP: income statement, balance sheet, cash flow
+├── reports/                         # Local saved reports (Markdown)
+├── logs/                            # Runtime logs
+├── data/                            # SQLite DB, budget state, signal history, FMP cache
+└── .github/workflows/
+    ├── daily_analysis.yml           # Scheduled daily run
+    └── bot_listener.yml             # Hourly bot polling keepalive
+```
+
+---
+
+## Configuration Reference
+
+### Required
+
+```env
+STOCK_LIST=AAPL,MSFT,NVDA,SPY,QQQ    # Tickers to analyze daily
+GEMINI_API_KEY=your_key               # Gemini AI (via LiteLLM)
+TELEGRAM_BOT_TOKEN=your_token         # From @BotFather
+TELEGRAM_CHAT_ID=your_chat_id         # Your Telegram chat ID
+```
+
+### Stock Classification
+
+```env
+TIER1_STOCKS=VOO,QQQ,NVDA,META,GOOGL  # Core long-term holds (no trim target)
+TIER2_STOCKS=TSLA,MU,IBIT             # Cyclical (AI provides trim targets)
+```
+
+### Monthly Deposit
+
+```env
+MONTHLY_BUDGET=400           # Total monthly cash to deploy (your currency)
+MONTHLY_DEPOSIT_DATE=1       # Day of month your salary/deposit arrives
+```
+
+### Portfolio (Google Sheets)
+
+```env
+GOOGLE_CREDENTIALS_JSON={"type":"service_account",...}   # Service account JSON
+GOOGLE_SHEET_ID=your_sheet_id_from_url
+GOOGLE_SHEET_TAB=Portfolio                               # Tab name in your sheet
+```
+
+### Signal Filtering
+
+```env
+BUY_ALERT_MIN_SCORE=70       # Minimum score to trigger a buy alert
+BUY_ALERT_ENABLED=true
+DAILY_DIGEST_ENABLED=true
+```
+
+### Market Review
+
+```env
+MARKET_REVIEW_ENABLED=true
+PORTFOLIO_IMPACT_ENABLED=true   # Include portfolio snapshot in market review
+```
+
+### Earnings Evaluator
+
+```env
+EARNINGS_EVAL_ENABLED=true
+FMP_API_KEY=your_fmp_key
+EARNINGS_LOOKBACK_DAYS=7        # How many days back to check for earnings reports
+```
+
+### Telegram Bot Listener
+
+```env
+BOT_LISTENER_ENABLED=true
+BOT_LISTENER_POLL_INTERVAL=5    # Seconds between polling for new messages
+CONCENTRATION_WARN_THRESHOLD=60 # % sector concentration to warn about
+```
+
+### News Search (optional but recommended)
+
+```env
+TAVILY_API_KEYS=key1,key2       # Multiple keys supported, rotated automatically
+SERPAPI_API_KEYS=key1
+BRAVE_API_KEYS=key1
+BOCHA_API_KEYS=key1
+NEWS_MAX_AGE_DAYS=30
+```
+
+### Runtime
+
+```env
+TIMEZONE=Asia/Kuala_Lumpur      # Your local timezone
+SCHEDULE_TIME=08:00             # When to run (local time, after US market close)
+SCHEDULE_ENABLED=true
+SCHEDULE_RUN_IMMEDIATELY=true   # Also run once on startup
+POST_MARKET_DELAY=30            # Minutes to wait after market close before fetching
+HISTORICAL_LOOKBACK_DAYS=252    # ~1 year of price history
+MAX_WORKERS=3                   # Concurrent stock analysis threads
+ANALYSIS_DELAY=0                # Seconds between individual stock analyses
+TRADING_DAY_CHECK_ENABLED=true  # Skip non-trading days automatically
+LOG_LEVEL=INFO
+```
 
 ---
 
@@ -136,123 +372,62 @@ git clone <your-fork-url>
 cd daily_stock_analysis
 pip install -r requirements.txt
 cp .env.example .env
-```
-
-Edit `.env` and set at least:
-
-```env
-STOCK_LIST=AAPL,MSFT,NVDA,SPY,QQQ
-GEMINI_API_KEY=your_key
-TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
-TELEGRAM_CHAT_ID=your_chat_id
-```
-
-Run:
-
-```bash
+# Edit .env with your keys
 python main.py
 ```
 
-Useful commands:
+### Useful CLI Flags
 
 ```bash
-python main.py --stocks AAPL,MSFT,NVDA
-python main.py --market-review
-python main.py --no-market-review
-python main.py --dry-run
-python main.py --force-run
+python main.py --market-review      # Run market review only
+python main.py --no-market-review   # Skip market review
+python main.py --no-notify          # Run analysis but don't send Telegram messages
+python main.py --force-run          # Run even if market is closed today
+python main.py --debug              # Enable debug logging
 ```
 
----
+### GitHub Actions Setup
 
-## Telegram Output
+Set these as repository secrets:
 
-- **Buy Alert**: sent only when a stock meets the confluence threshold
-- **Daily Digest**: sent as a single summary message for all watchlist stocks
-- **Market Review**: optional, can include a Portfolio Impact section
-- **Earnings Report**: optional, sent for recent earnings events
-
----
-
-## GitHub Actions
-
-Scheduled workflow: `.github/workflows/daily_analysis.yml`
-Bot listener workflow (hourly keepalive): `.github/workflows/bot_listener.yml`
-
-Set these secrets:
-
-- `GEMINI_API_KEY`
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
-- `STOCK_LIST`
-- `TAVILY_API_KEYS` (optional for news enrichment)
-
----
-
-## Artifacts
-
-Local outputs:
-
-- `reports/`
-- `logs/`
-- `data/`
-
----
-
-## Project Structure
-
-```text
-.
-|-- main.py
-|-- src/
-|   |-- analyzer.py
-|   |-- market_analyzer.py
-|   |-- notification.py
-|   |-- bot/telegram_listener.py
-|   `-- core/
-|       |-- pipeline.py
-|       |-- signal_filter.py
-|       |-- budget_tracker.py
-|       `-- earnings_evaluator.py
-|-- data_provider/
-|   `-- fmp_provider.py
-|-- reports/
-|-- logs/
-`-- .github/workflows/
+```
+GEMINI_API_KEY
+TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID
+STOCK_LIST
+GOOGLE_CREDENTIALS_JSON
+GOOGLE_SHEET_ID
+TIER1_STOCKS
+TIER2_STOCKS
+MONTHLY_BUDGET
+FMP_API_KEY           (optional, for earnings)
+TAVILY_API_KEYS       (optional, for news)
 ```
 
----
-
-## Scope
-
-This README reflects the supported runtime path of this fork.
-
-Out of scope for this version:
-
-- China A-share analysis
-- Hong Kong stock analysis
-- Email or non-Telegram channels
-- Multi-market scheduling or region switching beyond `us`
-
-Some legacy files may reference upstream features not supported here. Use this README and `.env.example` as the source of truth.
+The `daily_analysis.yml` workflow runs on a cron schedule. The `bot_listener.yml` workflow runs hourly to keep the Telegram bot responsive.
 
 ---
 
-## Development
+## Key Design Decisions
 
-Basic validation commands:
+**Why separate quality scoring from price timing?** A great company at a high price is not a great buy. The system evaluates fundamentals and price opportunity independently, then combines them for the monthly ranking. This prevents momentum from masquerading as quality.
 
-```bash
-python -m py_compile main.py src/*.py data_provider/*.py
-flake8 main.py src/ --max-line-length=120
-```
+**Why consecutive-day check for buy alerts?** A single-day signal is often noise — news-driven, algorithm-driven, or a data anomaly. Requiring the same signal on two consecutive days filters out most false positives.
 
-Changelog:
+**Why Chinese output from the AI?** The AI is instructed to output analysis in Chinese to save tokens. Shorter outputs mean lower API costs and faster responses. JSON keys remain in English for code compatibility.
 
-- `docs/CHANGELOG.md`
+**Why not use the AI for portfolio fit?** Sector concentration and correlation are computed in Python code, not by the AI. This makes them deterministic, consistent, and verifiable — the AI would produce different numbers each time for the same input.
+
+**Why Google Sheets for portfolio?** The `GOOGLEFINANCE()` formula auto-updates prices in real time. This means your portfolio data is always fresh without any additional API calls or manual updates.
+
+---
+
+## Telegram Message Formatting
+
+All messages use HTML parse mode (`parse_mode="HTML"`). Bold text uses `<b>`, italic uses `<i>`. Plain bullet points use `•` (not Markdown `-`). Tables are not used in Telegram messages as they do not render — data is presented in structured plain text lines instead.
 
 ---
 
 ## Disclaimer
 
-This project is for research and workflow automation only. It does not constitute investment advice. You are responsible for validating any output before making trading decisions.
+This project is for personal research and workflow automation only. It does not constitute investment advice. All AI-generated analysis reflects the model's interpretation of available data and may be incorrect. You are responsible for validating any output before making trading decisions.

@@ -356,7 +356,7 @@ class YfinanceFetcher(BaseFetcher):
     def _get_us_main_indices(self, yf) -> Optional[List[Dict[str, Any]]]:
         """获取美股主要指数行情（SPX、IXIC、DJI、VIX），复用 _fetch_yf_ticker_data"""
         # 大盘复盘所需核心美股指数
-        us_indices = ['SPX', 'IXIC', 'DJI', 'VIX']
+        us_indices = ['SPX', 'IXIC', 'DJI', 'VIX', 'GOLD']
         results = []
         try:
             for code in us_indices:

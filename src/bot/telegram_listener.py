@@ -133,8 +133,9 @@ def _build_evaluation_reply(ticker: str, payload: Dict[str, Any]) -> str:
         "",
         f"<b>💰 Entry</b>: {entry_zone} | <b>Stop</b>: {stop_loss}",
         "",
-        f"⚠️ Risks: {key_risks}",
-        f"👀 Watch for: {watch_for}",
+        f"<b>⚠️ Risks</b>: {key_risks}",
+        "",
+        f"<b>👀 Watch for</b>: {watch_for}",
     ]
     return "\n".join([line for line in lines if line is not None])
 

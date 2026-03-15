@@ -1200,6 +1200,9 @@ class StockAnalysisPipeline:
 
         if results:
             results.sort(key=lambda r: getattr(r, "monthly_priority_rank", 99))
+
+        if results:
+            results = self._rerank_by_opportunity(results, portfolio)
         
         logger.info("===== 分析完成 =====")
         logger.info(f"成功: {success_count}, 失败: {fail_count}, 耗时: {elapsed_time:.2f} 秒")
@@ -1259,6 +1262,68 @@ class StockAnalysisPipeline:
                 
         except Exception as e:
             logger.error(f"发送通知失败: {e}")
+
+    def _rerank_by_opportunity(
+        self,
+        results: List[AnalysisResult],
+        portfolio: Dict[str, Dict],
+    ) -> List[AnalysisResult]:
+        _ = portfolio
+
+        def _price_opportunity(score_price: Optional[float], ma20_value: Optional[float]) -> int:
+            if ma20_value is None or ma20_value <= 0:
+                return 20
+            if score_price is None:
+                return 20
+            try:
+                deviation = (float(score_price) - float(ma20_value)) / float(ma20_value) * 100
+            except (TypeError, ValueError, ZeroDivisionError):
+                return 20
+            if deviation <= 0:
+                return 40
+            if deviation <= 3:
+                return 30
+            if deviation <= 8:
+                return 15
+            return 0
+
+        def _get_ma20(result: AnalysisResult) -> Optional[float]:
+            if result.market_snapshot and result.market_snapshot.get("ma20") is not None:
+                try:
+                    return float(result.market_snapshot.get("ma20"))
+                except (TypeError, ValueError):
+                    return None
+            return None
+
+        for result in results:
+            fundamental_score = (getattr(result, "sentiment_score", 0) or 0) * 0.6
+            price = getattr(result, "current_price", None)
+            ma20_value = _get_ma20(result)
+            price_opportunity = _price_opportunity(price, ma20_value)
+            opportunity_score = fundamental_score + price_opportunity
+            setattr(result, "opportunity_score", round(opportunity_score, 2))
+
+            dip = getattr(result, "monthly_dip_opportunity", None)
+            if isinstance(dip, dict):
+                verdict = dip.get("verdict")
+                if price_opportunity == 40:
+                    target = "立即买入"
+                elif price_opportunity >= 30:
+                    target = "等待回调"
+                else:
+                    target = "本月跳过"
+                if verdict == "立即买入" and price_opportunity < 15:
+                    dip["verdict"] = target
+
+        results_sorted = sorted(
+            results,
+            key=lambda r: getattr(r, "opportunity_score", 0),
+            reverse=True,
+        )
+        for idx, result in enumerate(results_sorted, 1):
+            result.monthly_priority_rank = idx
+
+        return results_sorted
 
 
 def analyze_single_stock(

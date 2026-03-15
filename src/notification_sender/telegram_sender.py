@@ -437,3 +437,29 @@ class TelegramSender:
         lines.append(f"❌ 本月跳过: {', '.join(skip) if skip else '暂无'}")
 
         return self._send("\n".join(lines))
+
+    def send_earnings_report(self, ticker: str, report_text: str) -> bool:
+        if report_text is None:
+            return False
+        ticker_text = html.escape(ticker or "")
+        lines: List[str] = [f"<b>📋 Earnings Report — {ticker_text}</b>", ""]
+        for raw_line in str(report_text).splitlines():
+            line = raw_line.strip()
+            if not line:
+                lines.append("")
+                continue
+            if line.startswith("VERDICT:"):
+                value = html.escape(line[len("VERDICT:"):].strip())
+                lines.append(f"VERDICT: <b>{value}</b>")
+                continue
+            if line.startswith("HEADLINE:"):
+                value = html.escape(line[len("HEADLINE:"):].strip())
+                lines.append(f"HEADLINE: <i>{value}</i>")
+                continue
+            if line.startswith("LONG TERM TAKE:"):
+                value = html.escape(line[len("LONG TERM TAKE:"):].strip())
+                lines.append(f"📌 {value}")
+                continue
+            lines.append(html.escape(line))
+
+        return self._send("\n".join(lines), parse_mode="HTML", escape=False)

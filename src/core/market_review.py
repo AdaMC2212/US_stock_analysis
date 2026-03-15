@@ -112,7 +112,28 @@ def run_market_review(
                     logger.warning("大盘复盘推送失败")
             elif not send_notification:
                 logger.info("已跳过推送通知 (--no-notify)")
-            
+
+            if send_notification and notifier.is_available():
+                earnings_enabled = os.getenv("EARNINGS_EVAL_ENABLED", "false").lower() in ("true", "1", "yes")
+                fmp_api_key = os.getenv("FMP_API_KEY", "").strip()
+                if earnings_enabled and fmp_api_key:
+                    stock_list_raw = os.getenv("STOCK_LIST", "")
+                    tickers = [s.strip().upper() for s in stock_list_raw.split(",") if s.strip()]
+                    if tickers:
+                        from data_provider.fmp_provider import get_earnings_calendar
+                        from src.core.earnings_evaluator import evaluate_earnings
+
+                        reported = get_earnings_calendar(tickers, fmp_api_key) or []
+                        for ticker in reported[:5]:
+                            report = evaluate_earnings(ticker, fmp_api_key)
+                            if report:
+                                if notifier.send_earnings_report(ticker, report):
+                                    logger.info("Earnings report sent for %s", ticker)
+                                else:
+                                    logger.warning("Earnings report failed for %s", ticker)
+                            else:
+                                logger.warning("Earnings report empty for %s", ticker)
+
             return review_report
         
     except Exception as e:

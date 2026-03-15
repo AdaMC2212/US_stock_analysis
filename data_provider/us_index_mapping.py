@@ -37,6 +37,9 @@ US_INDEX_MAPPING = {
     # VIX 波动率指数
     'VIX': ('^VIX', 'VIX恐慌指数'),
     '^VIX': ('^VIX', 'VIX恐慌指数'),
+    # Gold futures
+    'GOLD': ('GC=F', '黄金期货'),
+    'GC=F': ('GC=F', '黄金期货'),
     # US 10Y Treasury yield
     'TNX': ('^TNX', '美国10年期国债收益率'),
     '^TNX': ('^TNX', '美国10年期国债收益率'),

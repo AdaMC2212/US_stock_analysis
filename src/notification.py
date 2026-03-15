@@ -864,6 +864,11 @@ class NotificationService:
             return False
         return self._telegram.send_daily_digest(message)
 
+    def send_earnings_report(self, ticker: str, report_text: str) -> bool:
+        if not self._telegram:
+            return False
+        return self._telegram.send_earnings_report(ticker, report_text)
+
 
     def _append_market_snapshot(self, lines: List[str], result: AnalysisResult) -> None:
         snapshot = getattr(result, 'market_snapshot', None)
