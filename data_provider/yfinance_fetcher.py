@@ -504,6 +504,18 @@ class YfinanceFetcher(BaseFetcher):
             "pb_ratio": pick("priceToBook"),
             "eps_growth": round(earnings_growth * 100, 2) if earnings_growth is not None else None,
             "revenue_growth": round(revenue_growth * 100, 2) if revenue_growth is not None else None,
+            "roe": round(pick("returnOnEquity") * 100, 2) if pick("returnOnEquity") is not None else None,
+            "operating_margin": round(pick("operatingMargins") * 100, 2)
+            if pick("operatingMargins") is not None
+            else None,
+            "revenue_growth_yoy": round(pick("revenueGrowth") * 100, 2)
+            if pick("revenueGrowth") is not None
+            else None,
+            "analyst_rating": info.get("recommendationKey"),
+            "analyst_target_price": pick("targetMeanPrice"),
+            "current_price": pick("currentPrice", "regularMarketPrice"),
+            "recommendation_mean": pick("recommendationMean"),
+            "number_of_analyst_opinions": info.get("numberOfAnalystOpinions"),
             "revenue_trend": "improving" if revenue_growth and revenue_growth > 0 else (
                 "contracting" if revenue_growth is not None else None
             ),

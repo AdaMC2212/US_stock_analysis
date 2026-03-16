@@ -866,25 +866,62 @@ stock_tier 说明：
     ) -> str:
         code = context.get("code", "UNKNOWN")
         stock_name = context.get("stock_name") or context.get("name") or STOCK_NAME_MAP.get(code, code)
-        date_str = context.get("date", "")
         fundamentals = context.get("fundamentals", {})
         realtime = context.get("realtime", {})
         news = context.get("news_context")
 
-        fundamentals_text = json.dumps(fundamentals, ensure_ascii=False, default=str)
-        realtime_text = json.dumps(realtime, ensure_ascii=False, default=str)
-        portfolio_text = json.dumps(portfolio_fit_context, ensure_ascii=False, default=str)
         news_text = news if isinstance(news, str) else ""
 
+        quality_data = {
+            "gross_margin_pct": fundamentals.get("gross_margin"),
+            "operating_margin_pct": fundamentals.get("operating_margin"),
+            "roe_pct": fundamentals.get("roe"),
+            "debt_to_equity": fundamentals.get("debt_to_equity"),
+            "free_cash_flow_usd": fundamentals.get("free_cash_flow"),
+            "profit_margin_pct": fundamentals.get("profit_margin"),
+        }
+
+        growth_data = {
+            "revenue_growth_yoy_pct": fundamentals.get("revenue_growth"),
+            "eps_growth_pct": fundamentals.get("eps_growth"),
+            "analyst_rating": fundamentals.get("analyst_rating"),
+            "analyst_target_price": fundamentals.get("analyst_target_price"),
+            "recommendation_mean_1to5": fundamentals.get("recommendation_mean"),
+            "number_of_analysts": fundamentals.get("number_of_analyst_opinions"),
+        }
+
+        valuation_data = {
+            "pe_ratio": fundamentals.get("pe_ratio"),
+            "forward_pe": fundamentals.get("forward_pe"),
+            "peg_ratio": fundamentals.get("peg_ratio"),
+            "pb_ratio": fundamentals.get("pb_ratio"),
+            "current_price": realtime.get("price"),
+            "52w_high": fundamentals.get("high_52w"),
+            "52w_low": fundamentals.get("low_52w"),
+        }
+
+        macro_data = {
+            "relative_strength_vs_spy_pct": fundamentals.get("relative_strength_vs_spy"),
+            "sector": fundamentals.get("sector"),
+            "industry": fundamentals.get("industry"),
+            "beta": fundamentals.get("beta"),
+        }
+
         return (
-            "请根据以下数据进行评估，输出严格JSON：\n\n"
-            f"股票代码: {code}\n"
-            f"股票名称: {stock_name}\n"
-            f"日期: {date_str}\n\n"
-            f"实时行情: {realtime_text}\n"
-            f"基本面: {fundamentals_text}\n"
-            f"组合适配: {portfolio_text}\n"
-            f"新闻摘要: {news_text}\n"
+            f"请根据以下数据评估 {code} ({stock_name})，"
+            f"输出严格JSON：\n\n"
+            f"## 質量数据\n"
+            f"{json.dumps(quality_data, ensure_ascii=False)}\n\n"
+            f"## 成長数据\n"
+            f"{json.dumps(growth_data, ensure_ascii=False)}\n\n"
+            f"## 估值数据\n"
+            f"{json.dumps(valuation_data, ensure_ascii=False)}\n\n"
+            f"## 宏觀数据\n"
+            f"{json.dumps(macro_data, ensure_ascii=False)}\n\n"
+            f"## 组合适配\n"
+            f"{json.dumps(portfolio_fit_context, ensure_ascii=False)}\n\n"
+            f"## 新闻摘要\n"
+            f"{news_text or '暂无新闻数据'}\n"
         )
 
     def _format_prompt(

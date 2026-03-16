@@ -72,20 +72,83 @@ def _build_help() -> str:
 
 
 def _build_portfolio_scorecard() -> str:
-    state_path = Path(__file__).resolve().parent.parent.parent / "data" / "signal_history.json"
-    if not state_path.exists():
-        return "No portfolio history found yet."
-    try:
-        data = json.loads(state_path.read_text(encoding="utf-8") or "{}")
-    except Exception:
-        return "Could not read portfolio history."
+    config = get_config()
+    portfolio = load_portfolio_from_config(config)
 
-    lines = ["Portfolio scorecard:"]
-    for ticker, info in sorted(data.items()):
-        score = info.get("last_score", "N/A")
-        decision = info.get("last_decision", "N/A")
-        date = info.get("date", "N/A")
-        lines.append(f"- {ticker}: {score} ({decision}) as of {date}")
+    if not portfolio:
+        return (
+            "📊 Portfolio\n\n"
+            "No portfolio data found. Check that GOOGLE_CREDENTIALS_JSON "
+            "and GOOGLE_SHEET_ID are configured correctly."
+        )
+
+    total_value = sum(
+        float(v.get("total_value") or 0)
+        for v in portfolio.values()
+    )
+    total_pnl = sum(
+        float(v.get("pnl") or 0)
+        for v in portfolio.values()
+    )
+    total_cost = sum(
+        float(v.get("shares") or 0) * float(v.get("avg_buy_price") or 0)
+        for v in portfolio.values()
+    )
+    overall_pnl_pct = (
+        (total_pnl / total_cost * 100) if total_cost > 0 else 0.0
+    )
+
+    pnl_sign = "+" if total_pnl >= 0 else ""
+    lines = [
+        "📊 Portfolio",
+        "",
+        f"💼 Total Value: ${total_value:,.0f}",
+        f"📈 Overall P&L: {pnl_sign}${total_pnl:,.0f} "
+        f"({pnl_sign}{overall_pnl_pct:.1f}%)",
+        "",
+    ]
+
+    sorted_holdings = sorted(
+        portfolio.items(),
+        key=lambda kv: float(kv[1].get("allocation_pct") or 0),
+        reverse=True,
+    )
+
+    for ticker, data in sorted_holdings:
+        alloc = float(data.get("allocation_pct") or 0)
+        pnl_pct = data.get("pnl_pct")
+        avg_price = data.get("avg_buy_price")
+        current_price = data.get("current_price")
+
+        if pnl_pct is not None:
+            try:
+                pnl_val = float(pnl_pct)
+                sign = "+" if pnl_val >= 0 else ""
+                emoji = "✅" if pnl_val >= 5 else (
+                    "🔴" if pnl_val <= -5 else "⚠️"
+                )
+                pnl_str = f"{sign}{pnl_val:.1f}%"
+            except (TypeError, ValueError):
+                pnl_str = "N/A"
+                emoji = "⚠️"
+        else:
+            pnl_str = "N/A"
+            emoji = "⚠️"
+
+        avg_str = (
+            f"${float(avg_price):,.2f}"
+            if avg_price is not None else "N/A"
+        )
+        curr_str = (
+            f"${float(current_price):,.2f}"
+            if current_price is not None else "N/A"
+        )
+
+        lines.append(
+            f"{emoji} {ticker} ({alloc:.1f}%) | "
+            f"avg {avg_str} → {curr_str} | {pnl_str}"
+        )
+
     return "\n".join(lines)
 
 
@@ -210,11 +273,11 @@ def _handle_message(token: str, chat_id: str, text: str) -> None:
         }
 
     try:
-        fundamentals = pipeline.fetcher_manager.get_fundamentals(ticker) or {}
-        if fundamentals:
-            context["fundamentals"] = fundamentals
-    except Exception:
-        pass
+        fundamental_context = pipeline._build_fundamental_context(ticker, realtime)
+        if fundamental_context:
+            context["fundamentals"] = fundamental_context
+    except Exception as exc:
+        logger.warning("Fundamental context build failed for %s: %s", ticker, exc)
 
     result = pipeline.analyzer.evaluate_for_purchase(context, portfolio_fit)
     done_flag["done"] = True
