@@ -140,6 +140,8 @@ class Config:
     tavily_api_keys: List[str] = field(default_factory=list)  # Tavily API Keys
     brave_api_keys: List[str] = field(default_factory=list)  # Brave Search API Keys
     serpapi_keys: List[str] = field(default_factory=list)  # SerpAPI Keys
+    finnhub_api_keys: List[str] = field(default_factory=list)  # Finnhub API Keys
+    fmp_api_keys: List[str] = field(default_factory=list)  # FMP API Keys
 
     # === 新闻与分析筛选配置 ===
     news_max_age_days: int = 7   # 新闻最大时效（天）
@@ -458,6 +460,16 @@ class Config:
 
         brave_keys_str = os.getenv('BRAVE_API_KEYS', '')
         brave_api_keys = [k.strip() for k in brave_keys_str.split(',') if k.strip()]
+
+        finnhub_keys_str = os.getenv('FINNHUB_API_KEYS', '')
+        finnhub_api_keys = [k.strip() for k in finnhub_keys_str.split(',') if k.strip()]
+
+        fmp_keys_str = os.getenv('FMP_API_KEYS', '')
+        fmp_api_keys = [k.strip() for k in fmp_keys_str.split(',') if k.strip()]
+        if not fmp_api_keys:
+            fmp_single = os.getenv('FMP_API_KEY', '').strip()
+            if fmp_single:
+                fmp_api_keys = [fmp_single]
         return cls(
             stock_list=stock_list,
             tier1_stocks=tier1_stocks,
@@ -507,6 +519,8 @@ class Config:
             tavily_api_keys=tavily_api_keys,
             brave_api_keys=brave_api_keys,
             serpapi_keys=serpapi_keys,
+            finnhub_api_keys=finnhub_api_keys,
+            fmp_api_keys=fmp_api_keys,
             news_max_age_days=max(1, int(os.getenv('NEWS_MAX_AGE_DAYS', '7'))),
             historical_lookback_days=max(60, int(os.getenv('HISTORICAL_LOOKBACK_DAYS', '252'))),
             bias_threshold=max(1.0, float(os.getenv('BIAS_THRESHOLD', '5.0'))),
@@ -880,10 +894,12 @@ class Config:
             or self.tavily_api_keys
             or self.brave_api_keys
             or self.serpapi_keys
+            or self.finnhub_api_keys
+            or self.fmp_api_keys
         ):
             issues.append(ConfigIssue(
                 severity="info",
-                message="未配置搜索引擎 API Key (Bocha/Tavily/Brave/SerpAPI)，新闻搜索功能将不可用",
+                message="未配置搜索引擎 API Key (Bocha/Tavily/Brave/SerpAPI/Finnhub/FMP)，新闻搜索功能将不可用",
                 field="BOCHA_API_KEY",
             ))
 

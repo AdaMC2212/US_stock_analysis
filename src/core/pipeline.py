@@ -93,6 +93,8 @@ class StockAnalysisPipeline:
             bocha_keys=self.config.bocha_api_keys,
             tavily_keys=self.config.tavily_api_keys,
             brave_keys=self.config.brave_api_keys,
+            finnhub_api_keys=getattr(self.config, "finnhub_api_keys", []),
+            fmp_api_keys=getattr(self.config, "fmp_api_keys", []),
             serpapi_keys=self.config.serpapi_keys,
             news_max_age_days=self.config.news_max_age_days,
         )

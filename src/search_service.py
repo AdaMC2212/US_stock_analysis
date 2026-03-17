@@ -14,10 +14,11 @@ A股自选股智能分析系统 - 搜索服务模块
 import logging
 import random
 import time
+import re
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote_plus
 from typing import List, Dict, Any, Optional, Tuple
@@ -38,6 +39,7 @@ from tenacity import (
 )
 
 from data_provider.us_index_mapping import is_us_index_code
+from data_provider import fmp_provider
 
 logger = logging.getLogger(__name__)
 
@@ -980,6 +982,185 @@ class BraveSearchProvider(BaseSearchProvider):
             return '未知来源'
 
 
+class FinnhubNewsProvider(BaseSearchProvider):
+    """
+    Finnhub News provider.
+
+    Uses:
+    - General market news: /news?category=general
+    - Company news: /company-news?symbol=...&from=...&to=...
+    """
+
+    GENERAL_ENDPOINT = "https://finnhub.io/api/v1/news"
+    COMPANY_ENDPOINT = "https://finnhub.io/api/v1/company-news"
+
+    def __init__(self, api_keys: List[str]):
+        super().__init__(api_keys, "Finnhub")
+
+    def _do_search(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
+        try:
+            now = datetime.now()
+            cutoff_ts = now.timestamp() - max(days, 1) * 86400
+
+            params: Dict[str, Any]
+            if self._is_ticker_query(query):
+                from_date = (now.date().toordinal() - max(days, 1))
+                from_date = datetime.fromordinal(from_date).date().isoformat()
+                to_date = now.date().isoformat()
+                params = {
+                    "symbol": query.strip().upper(),
+                    "from": from_date,
+                    "to": to_date,
+                    "token": api_key,
+                }
+                url = self.COMPANY_ENDPOINT
+            else:
+                params = {"category": "general", "token": api_key}
+                url = self.GENERAL_ENDPOINT
+
+            response = requests.get(url, params=params, timeout=10)
+            if response.status_code != 200:
+                return SearchResponse(
+                    query=query,
+                    results=[],
+                    provider=self.name,
+                    success=False,
+                    error_message=f"HTTP {response.status_code}: {response.text[:200]}",
+                )
+
+            data = response.json()
+            if not isinstance(data, list):
+                return SearchResponse(
+                    query=query,
+                    results=[],
+                    provider=self.name,
+                    success=False,
+                    error_message="Finnhub response is not a list",
+                )
+
+            results: List[Tuple[int, SearchResult]] = []
+            for item in data:
+                ts = item.get("datetime")
+                if ts is None:
+                    continue
+                try:
+                    ts = int(ts)
+                except Exception:
+                    continue
+                if ts < cutoff_ts:
+                    continue
+                results.append((
+                    ts,
+                    SearchResult(
+                        title=item.get("headline", "") or "",
+                        snippet=(item.get("summary", "") or "")[:200],
+                        url=item.get("url", "") or "",
+                        source=item.get("source", "") or "",
+                        published_date=datetime.fromtimestamp(ts).isoformat(),
+                    ),
+                ))
+
+            results.sort(key=lambda x: x[0], reverse=True)
+            final_results = [r for _, r in results[:max_results]]
+
+            return SearchResponse(
+                query=query,
+                results=final_results,
+                provider=self.name,
+                success=bool(final_results),
+                error_message=None if final_results else "Finnhub returned no recent results",
+            )
+        except Exception as e:
+            return SearchResponse(
+                query=query,
+                results=[],
+                provider=self.name,
+                success=False,
+                error_message=str(e),
+            )
+
+    @staticmethod
+    def _is_ticker_query(query: str) -> bool:
+        candidate = (query or "").strip()
+        return bool(re.fullmatch(r"[A-Z]{1,5}", candidate))
+
+
+class FMPNewsProvider(BaseSearchProvider):
+    """Financial Modeling Prep news provider (general market news)."""
+
+    def __init__(self, api_keys: List[str]):
+        super().__init__(api_keys, "FMP")
+
+    def _do_search(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
+        del query
+        try:
+            cache_key = f"news:general:{max_results}:{days}"
+            cached = fmp_provider._get_cached(cache_key)
+            if cached is not None and isinstance(cached, list):
+                data = cached
+            else:
+                url = f"{fmp_provider.BASE_URL}/stock_news?limit=20&apikey={api_key}"
+                data = fmp_provider._get_json(url)
+                if not isinstance(data, list):
+                    return SearchResponse(
+                        query="fmp_general_news",
+                        results=[],
+                        provider=self.name,
+                        success=False,
+                        error_message="FMP response is not a list",
+                    )
+                fmp_provider._set_cached(cache_key, data)
+
+            cutoff = datetime.now() - timedelta(days=max(days, 1))
+            results: List[Tuple[float, SearchResult]] = []
+
+            for item in data:
+                published_raw = item.get("publishedDate") or ""
+                published_dt = self._parse_published_date(published_raw)
+                if published_dt and published_dt < cutoff:
+                    continue
+                ts = published_dt.timestamp() if published_dt else 0.0
+                results.append((
+                    ts,
+                    SearchResult(
+                        title=item.get("title", "") or "",
+                        snippet=(item.get("text", "") or "")[:200],
+                        url=item.get("url", "") or "",
+                        source=item.get("site", "") or "",
+                        published_date=published_dt.isoformat() if published_dt else published_raw or None,
+                    ),
+                ))
+
+            results.sort(key=lambda x: x[0], reverse=True)
+            final_results = [r for _, r in results[:max_results]]
+
+            return SearchResponse(
+                query="fmp_general_news",
+                results=final_results,
+                provider=self.name,
+                success=bool(final_results),
+                error_message=None if final_results else "FMP returned no recent results",
+            )
+        except Exception as e:
+            return SearchResponse(
+                query="fmp_general_news",
+                results=[],
+                provider=self.name,
+                success=False,
+                error_message=str(e),
+            )
+
+    @staticmethod
+    def _parse_published_date(value: str) -> Optional[datetime]:
+        if not value:
+            return None
+        cleaned = value.replace("Z", "+00:00")
+        try:
+            return datetime.fromisoformat(cleaned)
+        except Exception:
+            return None
+
+
 class SearchService:
     """
     搜索服务
@@ -1015,6 +1196,8 @@ class SearchService:
         bocha_keys: Optional[List[str]] = None,
         tavily_keys: Optional[List[str]] = None,
         brave_keys: Optional[List[str]] = None,
+        finnhub_api_keys: Optional[List[str]] = None,
+        fmp_api_keys: Optional[List[str]] = None,
         serpapi_keys: Optional[List[str]] = None,
         news_max_age_days: int = 7,
     ):
@@ -1047,10 +1230,18 @@ class SearchService:
             self._providers.append(BraveSearchProvider(brave_keys))
             logger.info(f"已配置 Brave 搜索，共 {len(brave_keys)} 个 API Key")
 
+        if finnhub_api_keys:
+            self._providers.append(FinnhubNewsProvider(finnhub_api_keys))
+            logger.info(f"Configured Finnhub news keys: {len(finnhub_api_keys)}")
+
         # 4. SerpAPI 作为备选（每月 100 次）
         if serpapi_keys:
             self._providers.append(SerpAPISearchProvider(serpapi_keys))
             logger.info(f"已配置 SerpAPI 搜索，共 {len(serpapi_keys)} 个 API Key")
+
+        if fmp_api_keys:
+            self._providers.append(FMPNewsProvider(fmp_api_keys))
+            logger.info(f"Configured FMP news keys: {len(fmp_api_keys)}")
 
         self._providers.append(YahooFinanceRSSProvider())
         
@@ -1694,6 +1885,8 @@ def get_search_service() -> SearchService:
             bocha_keys=config.bocha_api_keys,
             tavily_keys=config.tavily_api_keys,
             brave_keys=config.brave_api_keys,
+            finnhub_api_keys=getattr(config, "finnhub_api_keys", []),
+            fmp_api_keys=getattr(config, "fmp_api_keys", []),
             serpapi_keys=config.serpapi_keys,
             news_max_age_days=config.news_max_age_days,
         )

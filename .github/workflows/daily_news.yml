@@ -1,0 +1,72 @@
+name: Daily News Digest
+
+on:
+  schedule:
+    - cron: "0 22 * * *"   # every day, 7 days a week
+  workflow_dispatch:
+
+concurrency:
+  group: daily-news-digest
+  cancel-in-progress: true
+
+jobs:
+  news:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install -r requirements.txt
+      - run: mkdir -p data logs reports
+      - name: Run daily news digest
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          LITELLM_MODEL: ${{ vars.LITELLM_MODEL || 'gemini/gemini-2.5-flash' }}
+          FINNHUB_API_KEYS: ${{ secrets.FINNHUB_API_KEYS }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          TAVILY_API_KEYS: ${{ secrets.TAVILY_API_KEYS }}
+          BRAVE_API_KEYS: ${{ secrets.BRAVE_API_KEYS }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SHEET_TAB: ${{ vars.GOOGLE_SHEET_TAB || 'Portfolio' }}
+          STOCK_LIST: ${{ secrets.STOCK_LIST }}
+          LOG_LEVEL: INFO
+        run: |
+          python -c "
+          from src.config import get_config, setup_env
+          from src.analyzer import GeminiAnalyzer
+          from src.notification import NotificationService
+          from src.search_service import SearchService
+
+          setup_env()
+          config = get_config()
+
+          search_service = None
+          if any([config.finnhub_api_keys, config.tavily_api_keys,
+                  config.brave_api_keys, config.fmp_api_keys]):
+              search_service = SearchService(
+                  finnhub_api_keys=config.finnhub_api_keys,
+                  tavily_keys=config.tavily_api_keys,
+                  brave_keys=config.brave_api_keys,
+                  fmp_api_keys=config.fmp_api_keys,
+                  news_max_age_days=2,
+              )
+
+          analyzer = GeminiAnalyzer()
+          notifier = NotificationService()
+
+          from src.core.daily_news import run_daily_news
+          run_daily_news(
+              notifier=notifier,
+              search_service=search_service,
+              analyzer=analyzer,
+              send_notification=True,
+          )
+          "
